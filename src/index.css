@@ -338,6 +338,25 @@ button:disabled { opacity: 0.4; cursor: default; }
 .undrafted-actions { display: flex; gap: 8px; font-family: var(--font-ui); }
 .the-end { margin-top: 4em; text-align: center; font: 700 14px var(--font-script); letter-spacing: 0.1em; }
 
+/* Full screen: a second click on the active dock tab */
+.app.panel-up.full { --panel-w: calc(100vw - 24px); }
+.app.panel-up.full.view-circle { --panel-w: 0px; }
+.app.full .panel { left: 12px; }
+.app.full .dock-area, .app.full .gesture-hint { left: 50%; }
+.app.full:not(.view-circle) .backdrop .wheel { opacity: 0.08; pointer-events: none; }
+.app.full.view-circle .backdrop .wheel { --size: min(calc(100vh - 150px), calc(100vw - 60px)); }
+.app.full .panel-body > .step { max-width: 960px; margin-inline: auto; }
+.app.full .scene-panel > .panel-head, .app.full .scene-panel > .scene-title, .app.full .scene-panel > .rail, .app.full .scene-panel > .panel-foot { width: 100%; max-width: 960px; margin-inline: auto; }
+.app.full .script-scroll { padding-inline: 24px; }
+.full-ico { color: var(--muted); margin-left: 2px; opacity: 0.8; }
+.dock-tab.full { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* Theme switch */
+.theme-toggle { position: relative; width: 46px; height: 26px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 10%, transparent); border: 1px solid var(--line); flex: none; transition: background 0.3s; }
+.tt-knob { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--accent); box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.35); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.tt-knob.dark { transform: translateX(20px); color: var(--ink); }
+body, .glass, .page, .stage-cell, .scene-cell, .hub { transition-property: background-color, background, color, fill, border-color; transition-duration: 0.35s; }
+
 /* Dock and assistant */
 .dock-area { position: fixed; z-index: 8; bottom: 14px; left: var(--left-center); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; transition: left 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); max-width: calc(100vw - 24px); }
 .dock { display: flex; align-items: center; gap: 4px; padding: 5px; border-radius: 16px; }

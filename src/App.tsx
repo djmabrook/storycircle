@@ -19,6 +19,34 @@ export default function App() {
   const [needle, setNeedle] = useState<Needle>({ stage: 0, sceneId: null, zoom: 1 })
   const [view, setView] = useState<View>('circle')
   const [minimized, setMinimized] = useState(false)
+  const [full, setFull] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const t = localStorage.getItem('storycircle.theme')
+      if (t === 'light' || t === 'dark') return t
+    } catch {
+      /* ignore */
+    }
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem('storycircle.theme', theme)
+    } catch {
+      /* ignore */
+    }
+  }, [theme])
+
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFull(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full])
   const [openSceneId, setOpenSceneId] = useState<string | null>(null)
   const [step, setStep] = useState<Step>('brief')
   const [scriptSceneId, setScriptSceneId] = useState<string | null>(null)
@@ -74,12 +102,14 @@ export default function App() {
     setStep(s ?? firstOpenStep(sc))
     setView('scene')
     setMinimized(false)
+    setFull(false)
     setSelection(null)
   }
 
   const showScript = (id?: string | null) => {
     setView('script')
     setMinimized(false)
+    setFull(false)
     const target = id ?? openSceneId ?? needle.sceneId
     if (target) {
       setScriptSceneId(target)
@@ -148,24 +178,38 @@ export default function App() {
 
   const dockTab = (v: View, label: React.ReactNode, sub?: string) => (
     <button
-      className={`dock-tab${view === v ? ' on' : ''}${view === v && minimized ? ' min' : ''}`}
+      className={`dock-tab${view === v ? ' on' : ''}${view === v && minimized ? ' min' : ''}${view === v && full ? ' full' : ''}`}
+      title={view === v ? (full ? 'Exit full screen (Esc)' : 'Click again for full screen') : undefined}
       onClick={() => {
-        if (view === v) setMinimized((m) => !m)
-        else if (v === 'script') showScript()
+        // A second click on the active tab toggles full screen for that view.
+        if (view === v) {
+          if (minimized) setMinimized(false)
+          else setFull((f) => !f)
+        } else if (v === 'script') showScript()
         else if (v === 'scene' && openSceneId) showScene(openSceneId, step)
         else {
           setView(v)
           setMinimized(false)
+          setFull(false)
         }
       }}
     >
       {label}
       {sub && <small>{sub}</small>}
+      {view === v && !minimized && (
+        <svg className="full-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden>
+          {full ? (
+            <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          ) : (
+            <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+        </svg>
+      )}
     </button>
   )
 
   return (
-    <div className={`app view-${view}${panelUp ? ' panel-up' : ''}`}>
+    <div className={`app view-${view}${panelUp ? ' panel-up' : ''}${full && panelUp ? ' full' : ''}`}>
       <div className="backdrop">
         <StoryWheel project={project} openSceneId={view === 'scene' ? openSceneId : view === 'script' ? scriptSceneId : null} onNeedle={onNeedle} onOpenScene={onWheelOpen} handle={wheel} faded={panelUp && view !== 'circle'}>
           <div className="hub-inner" style={{ ['--h' as string]: HUES[needle.stage] }}>
@@ -189,12 +233,26 @@ export default function App() {
         </div>
         <input id="project-title" className="project-title" value={project.title} onChange={(e) => update((p) => void (p.title = e.target.value))} aria-label="Project title" />
         <span className="spacer" />
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        >
+          <span className={`tt-knob ${theme}`}>
+            {theme === 'dark' ? (
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden><path d="M13.5 9.6A5.5 5.5 0 0 1 6.4 2.5a5.5 5.5 0 1 0 7.1 7.1z" fill="currentColor" /></svg>
+            ) : (
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden><circle cx="8" cy="8" r="3" fill="currentColor" /><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            )}
+          </span>
+        </button>
         <button className="pill" onClick={() => setSettingsOpen(true)} title="Claude connection">
           <span className={`status ${provider ?? ''}`} /> {provider ? providerLabel[provider] : '…'}
         </button>
       </header>
 
-      {panelUp && view === 'circle' && (
+      {panelUp && view === 'circle' && !full && (
         <StageCard
           project={project}
           stageIndex={needle.stage}
