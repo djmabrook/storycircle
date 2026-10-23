@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Project, Scene } from '../types'
 
-export type AssistKind = 'draft' | 'rewrite' | 'review' | 'ideas' | 'ask'
+export type AssistKind = 'draft' | 'rewrite' | 'review' | 'ideas' | 'beats' | 'ask'
 export type ProviderId = 'anthropic' | 'claude-app' | 'demo'
 
 export const DRAFT_MODEL = 'claude-opus-5-5'
@@ -173,6 +173,12 @@ export function buildPrompt(r: AssistRequest): { system: string; user: string; m
           st.sceneIds.map((id) => `- ${p.scenes[id].title}: ${p.scenes[id].purpose}`).join('\n') || '(none)'
         }\n\n${r.instruction ? `Writer's direction: ${r.instruction}\n` : ''}Propose three new scenes for this stage.`,
       }
+    case 'beats':
+      return {
+        model: DRAFT_MODEL,
+        system: `You are a story-development collaborator inside StoryCircle, a screenwriting app built on Dan Harmon's Story Circle. Propose beat slices for one scene: concrete actions, lines of dialogue, images or facts the scene could contain, each under 20 words, in story order. Respond with only a JSON array of 5 strings.`,
+        user: `${ctx}\n\n${stageLine}\n\n${sc ? neighbours(p, sc.id) : ''}\n\nScene:\n${sc ? sceneBrief(sc, false) : ''}\n\n${r.instruction ? `Writer's direction: ${r.instruction}\n` : ''}Propose five new beat slices that build on the existing ones without repeating them.`,
+      }
     case 'ask':
     default:
       return {
@@ -215,6 +221,8 @@ async function viaHost(r: AssistRequest, o: AssistOptions): Promise<string> {
     onText: ({ text }: { text: string }) => o.onText(text),
     signal: o.signal,
     modelTier: r.kind === 'review' ? 'quick' : 'complex',
+    // The brief specifies Haiku 5.5 for reviews; the host falls back to the tier if it can't serve it.
+    ...(r.kind === 'review' ? { model: REVIEW_MODEL } : {}),
     cache: false,
   })
   return res.text
@@ -263,6 +271,7 @@ The parenthetical does the work. What small behaviour earlier in the scene shows
 **The cost belongs to someone we know**
 The stranded vehicle is anonymous. Is there a caller from the Search scenes who could be in it, so Take costs Mara something personal?`,
   ideas: `[{"title":"Leila's map","heading":"INT. HILLTOP STATION - NIGHT","purpose":"Leila builds a live map from caller reports and Mara refuses to look at it.","beats":["Sticky notes cover the window glass","Mara turns her chair away"]},{"title":"The unverified caller","heading":"INT. HILLTOP STATION - LATER","purpose":"A child calls in a sighting Mara won't broadcast without proof.","beats":["Leila puts the child on air herself","Mara cuts the feed"]},{"title":"Generator fails","heading":"EXT. HILLTOP STATION - NIGHT","purpose":"In the dark, Mara has to trust Leila's hands on the wiring.","beats":["Rain, a flashlight in Mara's teeth","Leila talks her through it"]}]`,
+  beats: `["Mara rehearses the route under her breath before keying the mic","Leila pins a caller's sketch of the flooded underpass to the wall","The generator stutters; every light in the room dims at once","Mara: 'Certainty is the service. Doubt is static.'","Leila quietly writes the levee date on the map in red marker"]`,
   ask: `Two options to consider. First, keep Mara's motive as pride, and make the cost land on someone she personally vouched for earlier. Second, shift it to panic: she grabs the old map because it's the only thing in the room she understands. The second makes Return easier to earn, since correcting herself becomes an act of steadiness rather than humility.`,
 }
 
@@ -289,6 +298,17 @@ export interface SceneIdea {
   heading: string
   purpose: string
   beats: string[]
+}
+
+export function parseBeats(text: string): string[] {
+  const m = text.match(/\[[\s\S]*\]/)
+  if (!m) return []
+  try {
+    const arr = JSON.parse(m[0]) as unknown[]
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 export function parseIdeas(text: string): SceneIdea[] {

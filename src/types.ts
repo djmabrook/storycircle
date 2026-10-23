@@ -29,6 +29,13 @@ export interface DraftVersion {
   note: string
 }
 
+export interface Review {
+  id: string
+  at: number
+  focus: string
+  text: string
+}
+
 export interface Scene {
   id: string
   title: string
@@ -44,6 +51,8 @@ export interface Scene {
   versions: DraftVersion[]
   /** Other stages this scene also serves (many-to-many). */
   alsoServes: StageKey[]
+  /** Saved review passes; optional so projects saved by v0.1 still load. */
+  reviews?: Review[]
 }
 
 export interface Character {

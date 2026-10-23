@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import type { Project } from '../types'
 import { N, R, arcLength, layout, nearest, polar, sceneCenter, sector, textArc, wrap } from './geometry'
 
-const HUES = [205, 178, 42, 14, 346, 318, 52, 232]
+export const HUES = [205, 178, 42, 14, 346, 318, 52, 232]
 const ZOOM_MIN = 1
 const ZOOM_MAX = 14
 const SCENE_ZOOM = 2.4
@@ -25,10 +25,12 @@ interface Props {
   onNeedle: (n: Needle) => void
   onOpenScene: (id: string) => void
   handle?: Ref<WheelHandle>
+  /** Set when panels sit on top; the wheel recedes but stays interactive. */
+  faded?: boolean
   children?: React.ReactNode
 }
 
-export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle, children }: Props) {
+export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle, faded, children }: Props) {
   const [view, setView] = useState({ pos: 0, zoom: 1 })
   const target = useRef({ pos: 0, zoom: 1 })
   const viewRef = useRef(view)
@@ -260,7 +262,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
 
   return (
     <div
-      className="wheel"
+      className={`wheel${faded ? ' faded' : ''}`}
       ref={wrapRef}
       tabIndex={0}
       role="application"
