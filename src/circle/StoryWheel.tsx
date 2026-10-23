@@ -1,0 +1,349 @@
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
+import type { Project } from '../types'
+import { N, R, arcLength, layout, nearest, polar, sceneCenter, sector, textArc, wrap } from './geometry'
+
+const HUES = [205, 178, 42, 14, 346, 318, 52, 232]
+const ZOOM_MIN = 1
+const ZOOM_MAX = 14
+const SCENE_ZOOM = 2.4
+
+export interface Needle {
+  stage: number
+  sceneId: string | null
+  zoom: number
+}
+
+export interface WheelHandle {
+  goToStage: (i: number, zoom?: number) => void
+  goToScene: (id: string) => void
+  zoomOut: () => void
+}
+
+interface Props {
+  project: Project
+  openSceneId: string | null
+  onNeedle: (n: Needle) => void
+  onOpenScene: (id: string) => void
+  handle?: Ref<WheelHandle>
+  children?: React.ReactNode
+}
+
+export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle, children }: Props) {
+  const [view, setView] = useState({ pos: 0, zoom: 1 })
+  const target = useRef({ pos: 0, zoom: 1 })
+  const viewRef = useRef(view)
+  const idle = useRef<number | undefined>(undefined)
+  const raf = useRef<number | undefined>(undefined)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const reduceMotion = useMemo(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false, [])
+
+  const counts = project.stages.map((s) => s.sceneIds.length)
+
+  const tick = useCallback(() => {
+    const v = viewRef.current
+    const t = target.current
+    const k = reduceMotion ? 1 : 0.22
+    const pos = v.pos + (t.pos - v.pos) * k
+    const zoom = v.zoom + (t.zoom - v.zoom) * k
+    const done = Math.abs(t.pos - pos) < 0.0005 && Math.abs(t.zoom - zoom) < 0.001
+    const next = done ? { ...t } : { pos, zoom }
+    viewRef.current = next
+    setView(next)
+    raf.current = done ? undefined : requestAnimationFrame(tick)
+  }, [reduceMotion])
+
+  const kick = useCallback(() => {
+    if (raf.current === undefined) raf.current = requestAnimationFrame(tick)
+  }, [tick])
+
+  /** Snap to the nearest stage centre when zoomed out, nearest scene centre when zoomed in. */
+  const snapTarget = useCallback(
+    (pos: number, zoom: number) => {
+      const p = wrap(pos + 0.5) - 0.5
+      const i = Math.min(N - 1, Math.max(0, Math.floor(p + 0.5)))
+      const n = counts[i]
+      if (zoom < SCENE_ZOOM || n === 0) return nearest(pos, i)
+      const k = Math.min(n - 1, Math.max(0, Math.floor((p - (i - 0.5)) * n)))
+      return nearest(pos, sceneCenter(i, k, n))
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [counts.join(',')],
+  )
+
+  const scheduleSnap = useCallback(() => {
+    window.clearTimeout(idle.current)
+    idle.current = window.setTimeout(() => {
+      target.current.pos = snapTarget(target.current.pos, target.current.zoom)
+      kick()
+    }, 170)
+  }, [snapTarget, kick])
+
+  const focusWidth = () => {
+    const L = layout(target.current.pos, target.current.zoom)
+    return L.width[L.focus]
+  }
+
+  const rotateBy = useCallback(
+    (deg: number) => {
+      target.current.pos += deg / focusWidth()
+      kick()
+      scheduleSnap()
+    },
+    [kick, scheduleSnap],
+  )
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      target.current.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, target.current.zoom * factor))
+      kick()
+      scheduleSnap()
+    },
+    [kick, scheduleSnap],
+  )
+
+  useImperativeHandle(handle, () => ({
+    goToStage: (i, zoom = 5) => {
+      target.current = { pos: nearest(target.current.pos, i), zoom }
+      kick()
+    },
+    goToScene: (id) => {
+      const i = project.stages.findIndex((s) => s.sceneIds.includes(id))
+      if (i < 0) return
+      const st = project.stages[i]
+      const k = st.sceneIds.indexOf(id)
+      target.current = { pos: nearest(target.current.pos, sceneCenter(i, k, st.sceneIds.length)), zoom: Math.max(target.current.zoom, 7) }
+      kick()
+    },
+    zoomOut: () => {
+      target.current = { pos: snapTarget(target.current.pos, 1), zoom: 1 }
+      kick()
+    },
+  }))
+
+  // Trackpad: two-finger scroll twirls, pinch (ctrl+wheel) zooms. Safari/WKWebView
+  // (Tauri on macOS) also delivers true two-finger rotate via gesture events.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      if (e.ctrlKey) {
+        zoomBy(Math.exp(-e.deltaY * 0.012))
+        return
+      }
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      const scale = e.deltaMode === 1 ? 16 : 1
+      rotateBy(d * scale * 0.22)
+    }
+    let lastRot = 0
+    let baseZoom = 1
+    type GestureEvt = Event & { rotation: number; scale: number }
+    const onGStart = (e: Event) => {
+      e.preventDefault()
+      lastRot = (e as GestureEvt).rotation
+      baseZoom = target.current.zoom
+    }
+    const onGChange = (e: Event) => {
+      e.preventDefault()
+      const g = e as GestureEvt
+      const dr = g.rotation - lastRot
+      lastRot = g.rotation
+      target.current.pos -= dr / focusWidth()
+      target.current.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, baseZoom * g.scale))
+      kick()
+      scheduleSnap()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('gesturestart', onGStart)
+    el.addEventListener('gesturechange', onGChange)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('gesturestart', onGStart)
+      el.removeEventListener('gesturechange', onGChange)
+    }
+  }, [rotateBy, zoomBy, kick, scheduleSnap])
+
+  // Drag around the centre to spin, for mouse and touch.
+  const drag = useRef<{ id: number; angle: number; moved: number; hit: string | null } | null>(null)
+  const angleAt = (e: React.PointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect()
+    return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI
+  }
+  const onPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as Element).closest('[data-hub]')) return
+    const hit = (e.target as Element).closest('[data-hit]')?.getAttribute('data-hit') ?? null
+    drag.current = { id: e.pointerId, angle: angleAt(e), moved: 0, hit }
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current
+    if (!d || d.id !== e.pointerId) return
+    const a = angleAt(e)
+    let da = a - d.angle
+    if (da > 180) da -= 360
+    if (da < -180) da += 360
+    d.angle = a
+    d.moved += Math.abs(da)
+    if (d.moved > 2) {
+      target.current.pos -= da / focusWidth()
+      kick()
+      scheduleSnap()
+    }
+  }
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = drag.current
+    drag.current = null
+    if (!d || d.moved > 2 || !d.hit) return
+    void e
+    const [kind, value] = d.hit.split(':')
+    if (kind === 'stage') {
+      const i = Number(value)
+      target.current = { pos: nearest(target.current.pos, i), zoom: Math.max(5, target.current.zoom) }
+      kick()
+    } else if (kind === 'scene') {
+      const i = project.stages.findIndex((s) => s.sceneIds.includes(value))
+      const st = project.stages[i]
+      const k = st.sceneIds.indexOf(value)
+      target.current = { pos: nearest(target.current.pos, sceneCenter(i, k, st.sceneIds.length)), zoom: Math.max(7, target.current.zoom) }
+      kick()
+      onOpenScene(value)
+    }
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const L = layout(target.current.pos, target.current.zoom)
+    const n = counts[L.focus]
+    const zoomed = target.current.zoom >= SCENE_ZOOM && n > 0
+    const step = (dir: number) => {
+      if (zoomed) {
+        const k = Math.min(n - 1, Math.max(0, Math.floor(L.frac * n)))
+        const nk = k + dir
+        if (nk >= 0 && nk < n) target.current.pos = nearest(target.current.pos, sceneCenter(L.focus, nk, n))
+        else {
+          const ni = (L.focus + dir + N) % N
+          const nn = counts[ni]
+          target.current.pos = nearest(target.current.pos, sceneCenter(ni, dir > 0 ? 0 : Math.max(0, nn - 1), nn))
+        }
+      } else target.current.pos = nearest(target.current.pos, Math.round(wrap(target.current.pos)) + dir)
+      kick()
+    }
+    if (e.key === 'ArrowRight') step(1)
+    else if (e.key === 'ArrowLeft') step(-1)
+    else if (e.key === 'ArrowUp' || e.key === '+' || e.key === '=') zoomBy(1.5)
+    else if (e.key === 'ArrowDown' || e.key === '-') zoomBy(1 / 1.5)
+    else if (e.key === 'Escape') {
+      target.current = { pos: snapTarget(target.current.pos, 1), zoom: 1 }
+      kick()
+    } else if (e.key === 'Enter' && needle.sceneId) onOpenScene(needle.sceneId)
+    else return
+    e.preventDefault()
+  }
+
+  const L = layout(view.pos, view.zoom)
+  const focusStage = project.stages[L.focus]
+  const fn = focusStage.sceneIds.length
+  const needleScene =
+    view.zoom >= SCENE_ZOOM * 0.85 && fn > 0 ? focusStage.sceneIds[Math.min(fn - 1, Math.max(0, Math.floor(L.frac * fn)))] : null
+  const needle: Needle = { stage: L.focus, sceneId: needleScene, zoom: view.zoom }
+
+  const lastNeedle = useRef('')
+  useEffect(() => {
+    const key = `${needle.stage}|${needle.sceneId}|${needle.zoom >= SCENE_ZOOM}`
+    if (key !== lastNeedle.current) {
+      lastNeedle.current = key
+      onNeedle(needle)
+    }
+  })
+
+  const thresholds = [2, 6].map((i) => L.start[i] + L.width[i] / 2 + L.offset)
+
+  return (
+    <div
+      className="wheel"
+      ref={wrapRef}
+      tabIndex={0}
+      role="application"
+      aria-label="Story Circle. Scroll or drag to rotate, pinch or use up and down arrows to zoom, Enter to open the scene under the needle."
+      onKeyDown={onKeyDown}
+    >
+      <svg
+        ref={svgRef}
+        viewBox="-360 -360 720 720"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => (drag.current = null)}
+      >
+        <circle r={R.rim + 6} className="rim" />
+        {project.stages.map((st, i) => {
+          const a0 = L.start[i] + L.offset
+          const a1 = a0 + L.width[i]
+          const focused = i === L.focus
+          const n = st.sceneIds.length
+          const stageLabelR = (R.stageIn + R.stageOut) / 2
+          const labelRoom = arcLength(stageLabelR, L.width[i])
+          return (
+            <g key={st.key} style={{ ['--h' as string]: HUES[i] }} className={`stage world-${st.world}${focused ? ' focused' : ''}`}>
+              <path d={sector(R.stageIn, R.stageOut, a0, a1)} className="stage-cell" data-hit={`stage:${i}`} />
+              <path id={`sl-${i}`} d={textArc(stageLabelR, a0 + 1, a1 - 1)} fill="none" stroke="none" />
+              <text className="stage-label" dominantBaseline="middle" pointerEvents="none">
+                <textPath href={`#sl-${i}`} startOffset="50%" textAnchor="middle">
+                  {labelRoom > 90 ? `${st.number}  ${st.name.toUpperCase()}` : labelRoom > 26 ? st.number : ''}
+                </textPath>
+              </text>
+              {n === 0 && (
+                <path d={sector(R.sceneIn, R.sceneOut, a0 + 0.4, a1 - 0.4)} className="scene-empty" data-hit={`stage:${i}`} />
+              )}
+              {st.sceneIds.map((id, k) => {
+                const sc = project.scenes[id]
+                const s0 = a0 + (L.width[i] * k) / n
+                const s1 = a0 + (L.width[i] * (k + 1)) / n
+                const r = (R.sceneIn + R.sceneOut) / 2
+                const room = arcLength(r, s1 - s0)
+                const label = sc.title.length * 6.4 < room - 12 ? sc.title : room > 60 ? sc.title.slice(0, Math.floor((room - 20) / 6.4)) + '…' : ''
+                const cls = ['scene-cell', sc.draft.trim() ? 'drafted' : '', id === openSceneId ? 'open' : '', id === needleScene ? 'under' : '']
+                return (
+                  <g key={id}>
+                    <path d={sector(R.sceneIn, R.sceneOut, s0 + 0.4, s1 - 0.4)} className={cls.join(' ')} data-hit={`scene:${id}`} />
+                    <path id={`sc-${id}`} d={textArc(r, s0 + 0.5, s1 - 0.5)} fill="none" stroke="none" />
+                    {label && (
+                      <text className="scene-label" dominantBaseline="middle" pointerEvents="none">
+                        <textPath href={`#sc-${id}`} startOffset="50%" textAnchor="middle">
+                          {label}
+                        </textPath>
+                      </text>
+                    )}
+                    {room > 260 && sc.purpose && (
+                      <>
+                        <path id={`sp-${id}`} d={textArc(r - 30, s0 + 0.5, s1 - 0.5)} fill="none" stroke="none" />
+                        <text className="scene-purpose" dominantBaseline="middle" pointerEvents="none">
+                          <textPath href={`#sp-${id}`} startOffset="50%" textAnchor="middle">
+                            {sc.purpose.length * 5.6 < arcLength(r - 30, s1 - s0) - 30 ? sc.purpose : sc.purpose.slice(0, Math.floor((arcLength(r - 30, s1 - s0) - 40) / 5.6)) + '…'}
+                          </textPath>
+                        </text>
+                      </>
+                    )}
+                    {sc.alsoServes.length > 0 && room > 30 && (
+                      <circle cx={polar(R.sceneOut - 12, (s0 + s1) / 2)[0]} cy={polar(R.sceneOut - 12, (s0 + s1) / 2)[1]} r={3.5} className="serves-dot" pointerEvents="none" />
+                    )}
+                  </g>
+                )
+              })}
+            </g>
+          )
+        })}
+        {thresholds.map((a, j) => {
+          // Full threshold line reads as Harmon's order/chaos divide when zoomed out; ticks only once a slice opens.
+          const [x0, y0] = polar(view.zoom < 1.6 ? R.hub + 2 : R.sceneOut + 2, a)
+          const [x1, y1] = polar(R.rim + 18, a)
+          return <line key={j} x1={x0} y1={y0} x2={x1} y2={y1} className="threshold" pointerEvents="none" />
+        })}
+        <path d={`M-9 ${-R.rim - 22} L9 ${-R.rim - 22} L0 ${-R.sceneOut - 2} Z`} className="needle" pointerEvents="none" />
+      </svg>
+      <div className="hub" data-hub>
+        {children}
+      </div>
+    </div>
+  )
+}
