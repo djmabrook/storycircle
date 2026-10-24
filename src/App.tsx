@@ -154,6 +154,20 @@ export default function App() {
     return sc
   }
 
+  /** Move a scene to position `index` of hour `stage`; the screenplay and timings follow clock order. */
+  const moveScene = (id: string, stage: number, index: number) => {
+    const from = stageOf(id)
+    if (from < 0) return
+    const k = project.stages[from].sceneIds.indexOf(id)
+    const at = from === stage && k < index ? index - 1 : index
+    if (from === stage && at === k) return
+    update((p) => {
+      p.stages[from].sceneIds.splice(k, 1)
+      p.stages[stage].sceneIds.splice(Math.min(at, p.stages[stage].sceneIds.length), 0, id)
+    })
+    setToast(from === stage ? `Reordered “${project.scenes[id].title}”` : `Moved “${project.scenes[id].title}” to ${project.stages[stage].name}`)
+  }
+
   const exportFountain = async () => {
     try {
       if (await saveTextFile(`${safeName(project.title)}.fountain`, toFountain(project), 'fountain')) setToast('Fountain script saved')
@@ -248,7 +262,7 @@ export default function App() {
   return (
     <div className={`app view-${view}${panelUp ? ' panel-up' : ''}${full && panelUp ? ' full' : ''}`}>
       <div className="backdrop">
-        <StoryWheel project={project} openSceneId={view === 'scene' ? openSceneId : view === 'script' ? scriptSceneId : null} onNeedle={onNeedle} onOpenScene={onWheelOpen} handle={wheel} faded={panelUp && view !== 'circle'}>
+        <StoryWheel project={project} openSceneId={view === 'scene' ? openSceneId : view === 'script' ? scriptSceneId : null} onNeedle={onNeedle} onOpenScene={onWheelOpen} onMoveScene={moveScene} handle={wheel} faded={panelUp && view !== 'circle'}>
           <div className="hub-inner" style={{ ['--h' as string]: HUES[needle.stage] }}>
             <span className="hub-num">{fmt(needle.sceneId ? (est.start[needle.sceneId] ?? 0) : hourRange(project, needle.stage)[0])}</span>
             <span className="hub-name">{project.stages[needle.stage].name} o’clock</span>
@@ -345,6 +359,7 @@ export default function App() {
           onStep={setStep}
           onChange={(fn) => editScene(openScene.id, fn)}
           onProject={update}
+          onMoveToHour={(i) => moveScene(openScene.id, i, project.stages[i].sceneIds.length)}
           onSelectText={(t) => setSelection(t ? { sceneId: openScene.id, text: t } : null)}
           onAssist={askAssist}
           onRestore={(vid) => editScene(openScene.id, (s) => {
@@ -439,7 +454,7 @@ export default function App() {
       </div>
 
       <p className="gesture-hint" aria-hidden={panelUp && view !== 'circle'}>
-        <span><kbd>scroll</kbd> twirl</span><span><kbd>pinch</kbd> zoom</span><span><kbd>drag</kbd> spin</span><span><kbd>←</kbd><kbd>→</kbd> step</span>
+        <span><kbd>scroll</kbd> twirl</span><span><kbd>pinch</kbd> zoom</span><span><kbd>drag</kbd> spin</span><span><kbd>←</kbd><kbd>→</kbd> step</span><span><kbd>hold</kbd> move scene</span>
         {needle.zoom > 1.3 && <button className="btn ghost small" onClick={() => wheel.current?.zoomOut()}>Zoom out</button>}
       </p>
 

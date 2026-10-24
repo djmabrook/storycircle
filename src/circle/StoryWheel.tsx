@@ -26,13 +26,15 @@ interface Props {
   openSceneId: string | null
   onNeedle: (n: Needle) => void
   onOpenScene: (id: string) => void
+  /** Press and hold a scene, then drag: drops it into `stage` at position `index`. */
+  onMoveScene?: (id: string, stage: number, index: number) => void
   handle?: Ref<WheelHandle>
   /** Set when panels sit on top; the wheel recedes but stays interactive. */
   faded?: boolean
   children?: React.ReactNode
 }
 
-export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle, faded, children }: Props) {
+export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, onMoveScene, handle, faded, children }: Props) {
   const [view, setView] = useState({ pos: 0, zoom: 1 })
   const target = useRef({ pos: 0, zoom: 1 })
   const viewRef = useRef(view)
@@ -169,21 +171,53 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
   }, [rotateBy, zoomBy, kick, scheduleSnap])
 
   // Drag around the centre to spin, for mouse and touch.
-  const drag = useRef<{ id: number; angle: number; moved: number; hit: string | null } | null>(null)
+  // Press and hold a scene to lift it; dragging then moves the scene instead of spinning the wheel.
+  const drag = useRef<{ id: number; angle: number; moved: number; hit: string | null; hold?: number } | null>(null)
+  const [lift, setLift] = useState<{ id: string; stage: number; index: number } | null>(null)
+  const liftRef = useRef(lift)
+  liftRef.current = lift
   const angleAt = (e: React.PointerEvent) => {
     const r = svgRef.current!.getBoundingClientRect()
     return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI
   }
+  /** The hour under an angle on the wheel as drawn, and the gap between scenes nearest to it. */
+  const slotAt = (a: number, movingId: string) => {
+    const V = viewRef.current
+    const Lv = layout(V.pos, V.zoom)
+    for (let i = 0; i < N; i++) {
+      const rel = (((a - (Lv.start[i] + Lv.offset)) % 360) + 360) % 360
+      if (rel >= Lv.width[i]) continue
+      const n = project.stages[i].sceneIds.length
+      return { stage: i, index: Math.round((rel / Lv.width[i]) * n), id: movingId }
+    }
+    return null
+  }
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as Element).closest('[data-hub]')) return
     const hit = (e.target as Element).closest('[data-hit]')?.getAttribute('data-hit') ?? null
-    drag.current = { id: e.pointerId, angle: angleAt(e), moved: 0, hit }
+    const d: NonNullable<typeof drag.current> = { id: e.pointerId, angle: angleAt(e), moved: 0, hit }
+    if (onMoveScene && hit?.startsWith('scene:')) {
+      const sceneId = hit.slice(6)
+      const a = d.angle
+      d.hold = window.setTimeout(() => {
+        if (drag.current !== d || d.moved > 2) return
+        setLift(slotAt(a, sceneId))
+        navigator.vibrate?.(10)
+      }, 380)
+    }
+    drag.current = d
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
     if (!d || d.id !== e.pointerId) return
     const a = angleAt(e)
+    const lifted = liftRef.current
+    if (lifted) {
+      const slot = slotAt(a, lifted.id)
+      if (slot && (slot.stage !== lifted.stage || slot.index !== lifted.index)) setLift(slot)
+      return
+    }
     let da = a - d.angle
     if (da > 180) da -= 360
     if (da < -180) da += 360
@@ -198,6 +232,13 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current
     drag.current = null
+    window.clearTimeout(d?.hold)
+    const lifted = liftRef.current
+    if (lifted) {
+      setLift(null)
+      onMoveScene?.(lifted.id, lifted.stage, lifted.index)
+      return
+    }
     if (!d || d.moved > 2 || !d.hit) return
     void e
     const [kind, value] = d.hit.split(':')
@@ -236,6 +277,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
     else if (e.key === 'ArrowLeft') step(-1)
     else if (e.key === 'ArrowUp' || e.key === '+' || e.key === '=') zoomBy(1.5)
     else if (e.key === 'ArrowDown' || e.key === '-') zoomBy(1 / 1.5)
+    else if (e.key === 'Escape' && liftRef.current) setLift(null)
     else if (e.key === 'Escape') {
       target.current = { pos: snapTarget(target.current.pos, 1), zoom: 1 }
       kick()
@@ -275,7 +317,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
 
   return (
     <div
-      className={`wheel${faded ? ' faded' : ''}`}
+      className={`wheel${faded ? ' faded' : ''}${lift ? ' lifting' : ''}`}
       ref={wrapRef}
       tabIndex={0}
       role="application"
@@ -288,7 +330,11 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => (drag.current = null)}
+        onPointerCancel={() => {
+          window.clearTimeout(drag.current?.hold)
+          drag.current = null
+          setLift(null)
+        }}
       >
         <circle r={R.rim + 6} className="rim" />
         {project.stages.map((st, i) => {
@@ -317,7 +363,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
                 const r = (R.sceneIn + R.sceneOut) / 2
                 const room = arcLength(r, s1 - s0)
                 const label = sc.title.length * 6.4 < room - 12 ? sc.title : room > 60 ? sc.title.slice(0, Math.floor((room - 20) / 6.4)) + '…' : ''
-                const cls = ['scene-cell', sc.draft.trim() ? 'drafted' : '', id === openSceneId ? 'open' : '', id === needleScene ? 'under' : '']
+                const cls = ['scene-cell', sc.draft.trim() ? 'drafted' : '', id === openSceneId ? 'open' : '', id === needleScene ? 'under' : '', id === lift?.id ? 'lifting' : '']
                 return (
                   <g key={id}>
                     <path d={sector(R.sceneIn, R.sceneOut, s0 + 0.4, s1 - 0.4)} className={cls.join(' ')} data-hit={`scene:${id}`} />
@@ -384,6 +430,22 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
             )
           })}
         </g>
+        {lift && (() => {
+          // Drop marker: a bright seam where the scene will land, and the hour it lands in.
+          const ids = project.stages[lift.stage].sceneIds
+          const a0 = L.start[lift.stage] + L.offset
+          const a = ids.length ? a0 + (L.width[lift.stage] * lift.index) / ids.length : a0 + L.width[lift.stage] / 2
+          const [x0, y0] = polar(R.sceneIn - 2, a)
+          const [x1, y1] = polar(R.sceneOut + 4, a)
+          const [tx, ty] = polar(R.sceneOut + 18, a)
+          return (
+            <g className="drop-mark" pointerEvents="none" style={{ ['--h' as string]: HUES[lift.stage] }}>
+              <path d={sector(R.stageIn, R.stageOut, a0, a0 + L.width[lift.stage])} className="drop-hour" />
+              <line x1={x0} y1={y0} x2={x1} y2={y1} />
+              <circle cx={tx} cy={ty} r={4} />
+            </g>
+          )
+        })()}
         <path d={`M-9 ${-R.rim - 22} L9 ${-R.rim - 22} L0 ${-R.sceneOut - 2} Z`} className="needle" pointerEvents="none" />
       </svg>
       <div className="hub" data-hub>

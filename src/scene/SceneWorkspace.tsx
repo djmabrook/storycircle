@@ -43,6 +43,8 @@ interface Props {
   onChange: (fn: (s: Scene) => void) => void
   /** Edits beyond this scene, such as the threads that connect it to others. */
   onProject: (fn: (p: Project) => void) => void
+  /** Move this scene to the end of another hour. */
+  onMoveToHour: (i: number) => void
   onSelectText: (t: string | null) => void
   onAssist: (p: Omit<AssistPreset, 'nonce'>) => void
   onRestore: (versionId: string) => void
@@ -108,7 +110,7 @@ export function SceneWorkspace(props: Props) {
   )
 }
 
-function BriefStep({ project, scene, stageIndex, onChange, onProject, onDelete }: Props) {
+function BriefStep({ project, scene, stageIndex, onChange, onProject, onMoveToHour, onDelete }: Props) {
   const [confirm, setConfirm] = useState(false)
   const stage = project.stages[stageIndex]
   const field = (key: 'purpose' | 'attempt' | 'resistance' | 'turn', label: string, placeholder: string) => (
@@ -132,6 +134,15 @@ function BriefStep({ project, scene, stageIndex, onChange, onProject, onDelete }
       </div>
       {field('turn', 'Turn', 'What is different by the end?')}
       <div className="field-row">
+        <label className="field">
+          <span>Hour on the clock</span>
+          <select id="scene-hour" className="hour-select" value={stageIndex} onChange={(e) => onMoveToHour(Number(e.target.value))}>
+            {project.stages.map((h, i) => (
+              <option key={h.key} value={i}>{h.name} · {rangeLabel(project, i)}</option>
+            ))}
+          </select>
+          <small className="meta">Or press and hold the scene on the wheel and drag it.</small>
+        </label>
         <label className="field">
           <span>Runtime</span>
           <span className="runtime-input">

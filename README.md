@@ -10,6 +10,7 @@ This branch (`claude/project-thread-u4l2on`) is the fork. It never deploys to th
 - **Quarter marks** at 12, 3, 6 and 9 sit roughly where Act One turns, the midpoint and Act Two turns land.
 - **Scene runtime.** Each scene shows its estimated start time and length. It comes from the minutes you set in the scene's Brief, or the draft's page count (about a minute a page), or an even share of its hour until either exists. Each hour card has a meter showing whether its scenes fit, run long or leave room.
 - **Threads** link a setup scene to its payoff scene anywhere on the clock (5 to 8 as readily as 1 to 11), with a note. They're drawn across the wheel and listed on the hour card and in each scene's Brief.
+- **Move scenes** by pressing and holding one on the wheel, then dragging it to any hour or between two scenes. The scene's Brief also has an hour picker. The screenplay order, start times and threads follow the move.
 - **Look across the clock** jumps to the hour on the other side of the 12–6 line. It's a hint for where to look, not a rule.
 - **Assist** knows the runtime, each hour's time and load, and the threads, so it can suggest scenes that plant or pay off something you already have.
 - `.storyclock` files save projects. StoryCircle `.storycircle` files also open, with their eight stages laid onto the twelve hours.
