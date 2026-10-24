@@ -145,7 +145,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .chip:hover { border-color: var(--muted); }
 .chip.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.status.anthropic, .status.claude-app { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.status.anthropic, .status.claude-app, .status.claude-code { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
 .status.demo { background: var(--accent); }
 
 /* Shell geometry */
@@ -506,3 +506,8 @@ body, .glass, .page, .stage-cell, .scene-cell, .hub { transition-property: backg
 .drop-mark circle { fill: var(--accent); }
 .drop-mark .drop-hour { fill: hsl(var(--h) 70% 55% / 0.28); stroke: var(--accent); stroke-width: 2; }
 .hour-select { width: 100%; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 10px; padding: 8px 10px; font: inherit; color: var(--ink); }
+.cc-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.cc-toggle { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.cc-toggle input { margin-top: 3px; accent-color: var(--accent); }
+.cc-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.cc-toggle small { word-break: break-all; }

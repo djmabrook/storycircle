@@ -3,7 +3,7 @@ import type { Project, Scene } from '../types'
 import { fmt, fmtMinutes, hourLoad, mirrorOf, payoffsTo, rangeLabel, sceneTime, setupsFrom, timeline } from '../clock'
 
 export type AssistKind = 'draft' | 'rewrite' | 'review' | 'ideas' | 'beats' | 'ask'
-export type ProviderId = 'anthropic' | 'claude-app' | 'demo'
+export type ProviderId = 'anthropic' | 'claude-app' | 'claude-code' | 'demo'
 
 export const DRAFT_MODEL = 'claude-opus-5-5'
 export const REVIEW_MODEL = 'claude-haiku-5-5'
@@ -56,9 +56,43 @@ function hostSample(): Promise<SampleFn> {
   return samplePromise
 }
 
+// ---------- Claude Code (desktop) ----------
+
+const USE_CC = 'storyclock.useClaudeCode'
+const isTauri = () => '__TAURI_INTERNALS__' in window
+
+/** Whether the writer wants the desktop app to use Claude Code when it's installed (default yes). */
+export function getUseClaudeCode(): boolean {
+  try {
+    return localStorage.getItem(USE_CC) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export function setUseClaudeCode(on: boolean) {
+  try {
+    localStorage.setItem(USE_CC, on ? 'on' : 'off')
+  } catch {
+    /* ignore */
+  }
+}
+
+let ccPath: Promise<string | null> | null = null
+/** Path of the writer's Claude Code install, when this is the desktop app and it's found. */
+export function claudeCodePath(): Promise<string | null> {
+  if (!isTauri()) return Promise.resolve(null)
+  ccPath ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string | null>('claude_code_path'))
+    .catch(() => null)
+  return ccPath
+}
+
 export async function activeProvider(): Promise<ProviderId> {
-  // Inside Claude (web preview) the viewer's own account answers; the desktop app uses the API key.
+  // Inside Claude the viewer's own account answers. The desktop app prefers the
+  // writer's Claude Code (their subscription), then an API key.
   if (await hostSample()) return 'claude-app'
+  if (getUseClaudeCode() && (await claudeCodePath())) return 'claude-code'
   if (getApiKey()) return 'anthropic'
   return 'demo'
 }
@@ -66,6 +100,7 @@ export async function activeProvider(): Promise<ProviderId> {
 export const providerLabel: Record<ProviderId, string> = {
   anthropic: 'Claude API',
   'claude-app': 'Your Claude account',
+  'claude-code': 'Claude Code on this computer',
   demo: 'Demo mode (no key set)',
 }
 
@@ -254,6 +289,45 @@ async function viaHost(r: AssistRequest, o: AssistOptions): Promise<string> {
   return res.text
 }
 
+/** Claude Code takes model aliases, which follow whatever the writer's plan offers. */
+const CC_MODEL = (model: string) => (model === REVIEW_MODEL ? 'haiku' : 'opus')
+
+async function viaClaudeCode(r: AssistRequest, o: AssistOptions): Promise<string> {
+  const { invoke, Channel } = await import('@tauri-apps/api/core')
+  const { system, user, model } = buildPrompt(r)
+  const id = Math.random().toString(36).slice(2)
+  let text = ''
+  let result: { text: string; error: boolean } | null = null
+  const lines = new Channel<string>()
+  lines.onmessage = (line) => {
+    let ev: { type?: string; event?: { type?: string; delta?: { type?: string; text?: string } }; is_error?: boolean; result?: string }
+    try {
+      ev = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta') {
+      text += ev.event.delta.text ?? ''
+      o.onText(text)
+    } else if (ev.type === 'result') result = { text: ev.result ?? '', error: !!ev.is_error }
+  }
+  const stop = () => void invoke('claude_code_cancel', { id })
+  o.signal.addEventListener('abort', stop)
+  try {
+    await invoke('claude_code_run', { id, prompt: user, system, model: CC_MODEL(model), onLine: lines })
+  } catch (e) {
+    if (o.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    throw new Error(`Claude Code: ${e}`)
+  } finally {
+    o.signal.removeEventListener('abort', stop)
+  }
+  if (o.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const done = result as { text: string; error: boolean } | null
+  // Not signed in, out of usage, and similar arrive as an error result with a readable message.
+  if (done?.error) throw new Error(`Claude Code: ${done.text || 'the request failed.'}`)
+  return done?.text || text
+}
+
 const DEMO: Record<AssistKind, string> = {
   draft: `INT. HILLTOP STATION - NIGHT
 
@@ -315,7 +389,7 @@ async function viaDemo(r: AssistRequest, o: AssistOptions): Promise<string> {
 
 export async function runAssist(r: AssistRequest, o: AssistOptions): Promise<{ text: string; provider: ProviderId }> {
   const provider = await activeProvider()
-  const fn = provider === 'anthropic' ? viaApi : provider === 'claude-app' ? viaHost : viaDemo
+  const fn = provider === 'anthropic' ? viaApi : provider === 'claude-app' ? viaHost : provider === 'claude-code' ? viaClaudeCode : viaDemo
   return { text: await fn(r, o), provider }
 }
 

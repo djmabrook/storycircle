@@ -15,6 +15,12 @@ This branch (`claude/project-thread-u4l2on`) is the fork. It never deploys to th
 - **Assist** knows the runtime, each hour's time and load, and the threads, so it can suggest scenes that plant or pay off something you already have.
 - `.storyclock` files save projects. StoryCircle `.storycircle` files also open, with their eight stages laid onto the twelve hours.
 
+## Download the desktop app
+
+Every push to this branch builds Mac and Windows apps and posts them to the **StoryClock (latest build)** release: https://github.com/djmabrook/storycircle/releases/tag/storyclock-latest. The apps aren't signed yet, so the first time on a Mac, right-click StoryClock and choose **Open**.
+
+**Assist on your Claude subscription:** if Claude Code is installed and signed in on the computer, the desktop app runs Assist through it (`claude -p`, tools off), using whatever Claude plan you're signed in with. You can turn this off in the connection settings. When it's off or Claude Code is missing, Assist falls back to an API key, then demo mode. Inside Claude (the Artifact link), Assist uses the viewer's Claude account.
+
 Research sources: [No Film School on the Storyclock Notebook](https://nofilmschool.com/2017/05/storyclock-notebook-helps-you-turn-your-ideas-stories), [MZed Writing 101: The Clock](https://www.mzed.com/courses/writing-101/modules/6), [Maestro's Storyclock guide](https://maestrolearning.b-cdn.net/wp-content/uploads/2023/01/Storyclock-Applied-to-Learning-download-new.pdf).
 
 ---

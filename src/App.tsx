@@ -4,7 +4,7 @@ import { SceneWorkspace, firstOpenStep, type Step, STEPS } from './scene/SceneWo
 import { StageCard } from './stage/StageCard'
 import { ScriptView, type ScriptHandle } from './script/ScriptView'
 import { AssistDock, type AssistPreset } from './ai/AssistPanel'
-import { activeProvider, getApiKey, providerLabel, setApiKey, DRAFT_MODEL, REVIEW_MODEL, type AssistKind, type ProviderId, type SceneIdea } from './ai/assistant'
+import { activeProvider, claudeCodePath, getApiKey, getUseClaudeCode, providerLabel, setApiKey, setUseClaudeCode, DRAFT_MODEL, REVIEW_MODEL, type AssistKind, type ProviderId, type SceneIdea } from './ai/assistant'
 import { snapshot, toFountain, useProject } from './store'
 import { blankProject, emptyScene, seedProject, uid } from './data/seed'
 import { ProjectMenu } from './ProjectMenu'
@@ -466,22 +466,45 @@ export default function App() {
 
 function Settings({ onClose }: { onClose: () => void }) {
   const [key, setKey] = useState(getApiKey())
+  const [useCC, setUseCC] = useState(getUseClaudeCode())
+  const [ccPath, setCcPath] = useState<string | null | undefined>(undefined)
+  const desktop = '__TAURI_INTERNALS__' in window
+  useEffect(() => {
+    claudeCodePath().then(setCcPath)
+  }, [])
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal glass" role="dialog" aria-label="Claude connection" onClick={(e) => e.stopPropagation()}>
         <h2>Claude connection</h2>
         <p>
-          Drafting and rewrites use <code>{DRAFT_MODEL}</code>; reviews use <code>{REVIEW_MODEL}</code>. Inside Claude, StoryClock uses your Claude account. Elsewhere it needs an API key, and runs a scripted demo without one.
+          Drafting and rewrites use <code>{DRAFT_MODEL}</code>; reviews use <code>{REVIEW_MODEL}</code>. Inside Claude, StoryClock uses your Claude account. The desktop app can use Claude Code on this computer, so it runs on your Claude subscription. Otherwise it needs an API key, and runs a scripted demo without one.
         </p>
+        {desktop && (
+          <div className="cc-box">
+            <label className="cc-toggle">
+              <input type="checkbox" checked={useCC} onChange={(e) => setUseCC(e.target.checked)} />
+              <span>
+                <strong>Use Claude Code on this computer</strong>
+                <small className="meta">
+                  {ccPath === undefined
+                    ? 'Looking for Claude Code…'
+                    : ccPath
+                      ? `Found at ${ccPath}. Assist runs on the Claude plan you're signed in to there.`
+                      : 'Not found. Install Claude Code from claude.com/claude-code, run "claude" once in Terminal to sign in, then reopen StoryClock.'}
+                </small>
+              </span>
+            </label>
+          </div>
+        )}
         <label className="field">
-          <span>Anthropic API key</span>
+          <span>Anthropic API key{desktop ? ' (used when Claude Code is off or missing)' : ''}</span>
           <input id="api-key" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} autoComplete="off" />
         </label>
-        <p className="meta">The key stays on this device. The desktop build will move it to the system keychain.</p>
+        <p className="meta">The key stays on this device.</p>
         <div className="modal-actions">
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={() => { setApiKey(key.trim()); onClose() }}>Save</button>
+          <button className="btn primary" onClick={() => { setApiKey(key.trim()); setUseClaudeCode(useCC); onClose() }}>Save</button>
         </div>
       </div>
     </div>
