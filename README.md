@@ -37,7 +37,22 @@ The circle is always there as the bottom layer. Views float above it as glass pa
 - **Dock.** Circle, the open scene and Screenplay appear as tabs as you reach them. Click the active tab again to toggle full screen for that view (Esc exits); the minimise button on each panel sends it to the dock.
 - **Light and dark.** A switch in the top bar; it follows your system setting until you use it.
 - **Assist.** Lives in the dock and in the hub of the wheel. It adapts to where you are: Suggest scenes on a stage, Suggest beats on the board, Draft / Rewrite on a page (select lines to rewrite a passage), Review with a chosen focus, and Ask anywhere. Results never overwrite silently: *Use as draft*, *Keep as alternative* or *Discard*, with every replaced version kept in History.
-- **Export.** Fountain export of the whole script. Autosaves locally; ships with "The Last Broadcast" from the project brief.
+- **Projects.** New, open, save and switch projects from the title menu (see below). Ships with "The Last Broadcast" from the project brief.
+
+## Projects and files
+
+Click the arrow next to the project title in the top bar.
+
+| Action | What it does |
+| --- | --- |
+| **New project** | Starts an empty circle: eight stages, no scenes. |
+| **New from sample** | A fresh copy of "The Last Broadcast". |
+| **Open file…** (`⌘O` / `Ctrl+O`) | Opens a `.storycircle` project file, or imports a `.fountain` script. Scenes are split at their headings; a script exported from StoryCircle goes back onto the right stages with titles and briefs intact. |
+| **Save to file…** (`⌘S` / `Ctrl+S`) | Writes the whole project (stages, scenes, beats, drafts, history, reviews) to a `.storycircle` file. |
+| **Export Fountain…** | The screenplay as a `.fountain` file for other screenwriting apps. |
+| **Projects on this device** | Every project autosaves locally as you type; switch between them or delete old ones here. |
+
+In the desktop app, Open and Save use the native file dialogs. Inside Claude, Save asks before downloading. In a plain browser, files go to your Downloads folder.
 
 ## AI connection
 
@@ -75,7 +90,7 @@ src-tauri/               desktop shell
 
 ## Next steps (proposed)
 
-1. Save projects as files on disk through Tauri (a project folder with a `.fountain` script plus a JSON sidecar for stages, beats and versions), and keep the API key in the OS keychain.
+1. Keep the API key in the OS keychain, and remember the last file path so `⌘S` saves in place on desktop.
 2. Real pagination (page breaks, MORE / CONT'D) and PDF export.
 3. Drag scenes between stages on the wheel, and show many-to-many links as arcs across the circle.
 4. Character panel and per-character arcs as extra rings.

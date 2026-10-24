@@ -6,14 +6,16 @@ import { ScriptView, type ScriptHandle } from './script/ScriptView'
 import { AssistDock, type AssistPreset } from './ai/AssistPanel'
 import { activeProvider, getApiKey, providerLabel, setApiKey, DRAFT_MODEL, REVIEW_MODEL, type AssistKind, type ProviderId, type SceneIdea } from './ai/assistant'
 import { snapshot, toFountain, useProject } from './store'
-import { emptyScene, uid } from './data/seed'
+import { blankProject, emptyScene, seedProject, uid } from './data/seed'
+import { ProjectMenu } from './ProjectMenu'
+import { pickTextFile, projectFromFile, projectToFile, safeName, saveTextFile, PROJECT_EXT } from './files'
 import { pageEstimate, parse } from './script/fountain'
 import type { Scene } from './types'
 
 type View = 'circle' | 'scene' | 'script'
 
 export default function App() {
-  const { project, update, reset } = useProject()
+  const { project, update, projects, currentId, addProject, openProject, deleteProject } = useProject()
   const wheel = useRef<WheelHandle>(null)
   const script = useRef<ScriptHandle>(null)
   const [needle, setNeedle] = useState<Needle>({ stage: 0, sceneId: null, zoom: 1 })
@@ -152,25 +154,58 @@ export default function App() {
   }
 
   const exportFountain = async () => {
-    const text = toFountain(project)
-    const name = `${project.title.replace(/[^\w-]+/g, '_')}.fountain`
     try {
-      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch {
-      /* download blocked */
-    }
-    try {
-      await navigator.clipboard.writeText(text)
-      setToast('Fountain script copied to the clipboard')
-    } catch {
-      setToast(`Exported ${name}`)
+      if (await saveTextFile(`${safeName(project.title)}.fountain`, toFountain(project), 'fountain')) setToast('Fountain script saved')
+    } catch (e) {
+      setToast(`Couldn’t export: ${(e as Error).message}`)
     }
   }
+
+  const saveProject = async () => {
+    try {
+      if (await saveTextFile(`${safeName(project.title)}.${PROJECT_EXT}`, projectToFile(project), PROJECT_EXT)) setToast(`Saved “${project.title}”`)
+    } catch (e) {
+      setToast(`Couldn’t save: ${(e as Error).message}`)
+    }
+  }
+
+  const openFile = async () => {
+    try {
+      const f = await pickTextFile()
+      if (!f) return
+      const p = projectFromFile(f.name, f.text)
+      addProject(p)
+      setToast(`Opened “${p.title}”`)
+    } catch (e) {
+      setToast((e as Error).message)
+    }
+  }
+
+  // Reset the views whenever a different project is opened.
+  useEffect(() => {
+    setView('circle')
+    setMinimized(false)
+    setFull(false)
+    setOpenSceneId(null)
+    setScriptSceneId(null)
+    setSelection(null)
+    wheel.current?.zoomOut()
+  }, [currentId])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key === 's') {
+        e.preventDefault()
+        saveProject()
+      } else if (e.key === 'o') {
+        e.preventDefault()
+        openFile()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const ordered = project.stages.flatMap((s) => s.sceneIds.map((id) => project.scenes[id]))
   const pages = ordered.reduce((a, sc) => a + (sc.draft.trim() ? pageEstimate(parse(sc.draft)) : 0), 0)
@@ -231,7 +266,19 @@ export default function App() {
           </svg>
           StoryCircle
         </div>
-        <input id="project-title" className="project-title" value={project.title} onChange={(e) => update((p) => void (p.title = e.target.value))} aria-label="Project title" />
+        <ProjectMenu
+          title={project.title}
+          projects={projects}
+          currentId={currentId}
+          onRename={(t) => update((p) => void (p.title = t))}
+          onNewBlank={() => { addProject(blankProject()); setToast('New project started') }}
+          onNewSample={() => { addProject(seedProject()); setToast('Opened a fresh copy of the sample') }}
+          onOpenFile={openFile}
+          onSave={saveProject}
+          onExportFountain={exportFountain}
+          onOpen={openProject}
+          onDelete={deleteProject}
+        />
         <span className="spacer" />
         <button
           className="theme-toggle"
@@ -375,15 +422,14 @@ export default function App() {
         {needle.zoom > 1.3 && <button className="btn ghost small" onClick={() => wheel.current?.zoomOut()}>Zoom out</button>}
       </p>
 
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onReset={() => { reset(); setOpenSceneId(null); setView('circle'); setSettingsOpen(false) }} onExport={exportFountain} />}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   )
 }
 
-function Settings({ onClose, onReset, onExport }: { onClose: () => void; onReset: () => void; onExport: () => void }) {
+function Settings({ onClose }: { onClose: () => void }) {
   const [key, setKey] = useState(getApiKey())
-  const [confirmReset, setConfirmReset] = useState(false)
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal glass" role="dialog" aria-label="Claude connection" onClick={(e) => e.stopPropagation()}>
@@ -397,16 +443,6 @@ function Settings({ onClose, onReset, onExport }: { onClose: () => void; onReset
         </label>
         <p className="meta">The key stays on this device. The desktop build will move it to the system keychain.</p>
         <div className="modal-actions">
-          <button className="btn ghost small" onClick={onExport}>Export Fountain</button>
-          {confirmReset ? (
-            <>
-              <span className="meta">Replace your project with the sample?</span>
-              <button className="btn danger small" onClick={onReset}>Replace</button>
-              <button className="btn ghost small" onClick={() => setConfirmReset(false)}>Cancel</button>
-            </>
-          ) : (
-            <button className="btn ghost small danger-text" onClick={() => setConfirmReset(true)}>Reload sample</button>
-          )}
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn primary" onClick={() => { setApiKey(key.trim()); onClose() }}>Save</button>

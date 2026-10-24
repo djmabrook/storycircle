@@ -149,3 +149,16 @@ Leila stares at her through the glass. Mara doesn't look up.`,
     scenes,
   }
 }
+
+/** An empty circle: eight stages, no scenes, nothing pre-written. */
+export function blankProject(title = 'Untitled screenplay'): Project {
+  return {
+    title,
+    logline: '',
+    theme: '',
+    tone: '',
+    characters: [],
+    stages: STAGE_DEFS.map((d, i) => ({ ...d, number: i + 1, idea: '', sceneIds: [] })),
+    scenes: {},
+  }
+}
