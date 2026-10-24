@@ -13,6 +13,10 @@ npm run desktop    # desktop window via Tauri (needs Rust; see tauri.app/start/p
 npm run build:single   # one-file HTML preview in dist-single/
 ```
 
+## Web version
+
+Live at **https://storycircle-37772.web.app** (Firebase Hosting). Every push to `main` builds and deploys it through `.github/workflows/firebase-hosting.yml`, which signs in to Google without a stored key (Workload Identity Federation, set up once with `scripts/setup-github-deploy.sh` in Cloud Shell). Pull requests get a build check only.
+
 ## Controls
 
 | Gesture | What it does |
