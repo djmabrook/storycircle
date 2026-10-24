@@ -9,7 +9,7 @@ on:
 
 env:
   # Printed by the Cloud Shell setup script. Deploy is skipped while it's empty.
-  WIF_PROVIDER: ''
+  WIF_PROVIDER: projects/157327831258/locations/global/workloadIdentityPools/github/providers/storycircle
   DEPLOY_SA: github-deployer@storycircle-37772.iam.gserviceaccount.com
 
 jobs:
