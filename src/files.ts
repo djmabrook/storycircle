@@ -1,11 +1,11 @@
 import type { Project, Scene } from './types'
-import { blankProject, emptyScene, uid } from './data/seed'
+import { blankProject, emptyScene, normalizeProject, uid } from './data/seed'
 
 /** File format for a saved project: the whole project as JSON, with a version tag. */
-export const PROJECT_EXT = 'storycircle'
+export const PROJECT_EXT = 'storyclock'
 
 export interface ProjectFile {
-  format: 'storycircle'
+  format: 'storyclock' | 'storycircle'
   version: 1
   savedAt: string
   project: Project
@@ -26,7 +26,7 @@ export async function saveTextFile(filename: string, text: string, ext: string):
   if (isTauri()) {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-    const path = await save({ defaultPath: filename, filters: [{ name: ext === 'fountain' ? 'Fountain screenplay' : 'StoryCircle project', extensions: [ext] }] })
+    const path = await save({ defaultPath: filename, filters: [{ name: ext === 'fountain' ? 'Fountain screenplay' : 'StoryClock project', extensions: [ext] }] })
     if (!path) return false
     await writeTextFile(path, text)
     return true
@@ -59,7 +59,7 @@ export async function pickTextFile(): Promise<{ name: string; text: string } | n
   if (isTauri()) {
     const { open } = await import('@tauri-apps/plugin-dialog')
     const { readTextFile } = await import('@tauri-apps/plugin-fs')
-    const path = await open({ multiple: false, filters: [{ name: 'StoryCircle or Fountain', extensions: [PROJECT_EXT, 'json', 'fountain', 'txt'] }] })
+    const path = await open({ multiple: false, filters: [{ name: 'StoryClock, StoryCircle or Fountain', extensions: [PROJECT_EXT, 'storycircle', 'json', 'fountain', 'txt'] }] })
     if (!path || Array.isArray(path)) return null
     return { name: path.split(/[\\/]/).pop() ?? path, text: await readTextFile(path) }
   }
@@ -77,11 +77,11 @@ export async function pickTextFile(): Promise<{ name: string; text: string } | n
 }
 
 export function projectToFile(p: Project): string {
-  const file: ProjectFile = { format: 'storycircle', version: 1, savedAt: new Date().toISOString(), project: p }
+  const file: ProjectFile = { format: 'storyclock', version: 1, savedAt: new Date().toISOString(), project: p }
   return JSON.stringify(file, null, 2)
 }
 
-/** Read a .storycircle project, or turn a Fountain script into a project. Throws with a readable message. */
+/** Read a .storyclock (or .storycircle) project, or turn a Fountain script into a project. Throws with a readable message. */
 export function projectFromFile(name: string, text: string): Project {
   const trimmed = text.trimStart()
   if (trimmed.startsWith('{')) {
@@ -89,11 +89,12 @@ export function projectFromFile(name: string, text: string): Project {
     try {
       data = JSON.parse(text)
     } catch {
-      throw new Error(`${name} isn’t a valid StoryCircle project file.`)
+      throw new Error(`${name} isn’t a valid StoryClock project file.`)
     }
     const p = (data as ProjectFile).project ?? (data as Project)
-    if (!p || !Array.isArray(p.stages) || p.stages.length !== 8 || typeof p.scenes !== 'object') throw new Error(`${name} isn’t a StoryCircle project file.`)
-    return p
+    if (!p || !Array.isArray(p.stages) || !p.stages.length || typeof p.scenes !== 'object') throw new Error(`${name} isn’t a StoryClock project file.`)
+    // StoryCircle files open too: their eight stages are laid onto the twelve hours.
+    return normalizeProject(p)
   }
   return fromFountain(name, text)
 }
@@ -101,8 +102,8 @@ export function projectFromFile(name: string, text: string): Project {
 const HEADING = /^(\.(?!\.)|(INT|EXT|EST|INT\.?\/EXT|I\/E)[ .])/i
 
 /**
- * Fountain import. Sections written by StoryCircle's export ("# 3. Go") put
- * scenes back on their stage; anything else lands in stage 1 to be sorted on the wheel.
+ * Fountain import. Sections written by StoryClock's export ("# 4. 3–4") put
+ * scenes back on their hour; anything else lands in hour 1 to be sorted on the wheel.
  */
 function fromFountain(name: string, text: string): Project {
   const lines = text.replace(/\r/g, '').split('\n')
@@ -124,7 +125,7 @@ function fromFountain(name: string, text: string): Project {
   for (; i < lines.length; i++) {
     const l = lines[i]
     const t = l.trim()
-    const section = t.match(/^#\s*([1-8])\./)
+    const section = t.match(/^#\s*(1[0-2]|[1-9])\./)
     if (section) {
       flush()
       stage = Number(section[1]) - 1
@@ -149,7 +150,7 @@ function fromFountain(name: string, text: string): Project {
     if (current) current.body.push(l)
   }
   flush()
-  // An undrafted scene exported by StoryCircle is only a heading; keep it as a brief.
+  // An undrafted scene exported by StoryClock is only a heading; keep it as a brief.
   for (const sc of Object.values(p.scenes)) if (sc.draft.split('\n').filter((x) => x.trim()).length <= 1) sc.draft = ''
   if (!Object.keys(p.scenes).length) throw new Error(`No scenes were found in ${name}. Scenes need headings such as INT. KITCHEN - NIGHT.`)
   return p

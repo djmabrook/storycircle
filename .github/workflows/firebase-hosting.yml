@@ -1,11 +1,11 @@
-# Builds on every push and pull request; deploys main to Firebase Hosting.
+# StoryClock fork: builds on every push and deploys to the "storyclock" Firebase preview channel,
+# never to the live StoryCircle site. Each deploy resets the channel's 30-day expiry.
 # Auth is keyless (Workload Identity Federation), so no service account key is stored anywhere.
-name: Firebase Hosting
+name: StoryClock preview
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: [claude/project-thread-u4l2on]
 
 env:
   # Printed by the Cloud Shell setup script. Deploy is skipped while it's empty.
@@ -34,4 +34,4 @@ jobs:
           create_credentials_file: true
           token_format: access_token
       - if: github.event_name == 'push' && env.WIF_PROVIDER != ''
-        run: npx -y firebase-tools@15 deploy --only hosting --non-interactive
+        run: npx -y firebase-tools@15 hosting:channel:deploy storyclock --expires 30d --non-interactive

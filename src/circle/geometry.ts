@@ -1,6 +1,6 @@
-/** Geometry for the fisheye Story Circle. Angles are in degrees, SVG convention (0 = +x, clockwise). */
+/** Geometry for the fisheye Story Clock. Angles are in degrees, SVG convention (0 = +x, clockwise). */
 
-export const N = 8
+export const N = 12
 export const R = { hub: 92, stageIn: 98, stageOut: 196, sceneIn: 202, sceneOut: 318, rim: 328 }
 
 export const wrap = (p: number) => ((p % N) + N) % N

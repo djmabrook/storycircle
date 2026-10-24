@@ -1,8 +1,28 @@
-# StoryCircle
+# StoryClock
+
+A fork of StoryCircle that keeps the same wheel, panels, screenplay view and Claude assistant, rebuilt around **Seth Worley's Storyclock** instead of Dan Harmon's Story Circle. The clock face is the film's runtime: twelve hours, each a twelfth of the film, with scenes subdividing each hour. You plant your strongest ideas where they happen in time, look for empty or crowded hours, and fill the gaps by threading setups to payoffs across the clock.
+
+This branch (`claude/project-thread-u4l2on`) is the fork. It never deploys to the live StoryCircle site; see "Web version" below.
+
+## The Story Clock in the app
+
+- **Runtime** (top bar) sets the length of the film. Each hour shows its time range, such as 3–4 · 0:27–0:36 on a 110-minute film. The top bar also shows the estimated total of every scene.
+- **Quarter marks** at 12, 3, 6 and 9 sit roughly where Act One turns, the midpoint and Act Two turns land.
+- **Scene runtime.** Each scene shows its estimated start time and length. It comes from the minutes you set in the scene's Brief, or the draft's page count (about a minute a page), or an even share of its hour until either exists. Each hour card has a meter showing whether its scenes fit, run long or leave room.
+- **Threads** link a setup scene to its payoff scene anywhere on the clock (5 to 8 as readily as 1 to 11), with a note. They're drawn across the wheel and listed on the hour card and in each scene's Brief.
+- **Look across the clock** jumps to the hour on the other side of the 12–6 line. It's a hint for where to look, not a rule.
+- **Assist** knows the runtime, each hour's time and load, and the threads, so it can suggest scenes that plant or pay off something you already have.
+- `.storyclock` files save projects. StoryCircle `.storycircle` files also open, with their eight stages laid onto the twelve hours.
+
+Research sources: [No Film School on the Storyclock Notebook](https://nofilmschool.com/2017/05/storyclock-notebook-helps-you-turn-your-ideas-stories), [MZed Writing 101: The Clock](https://www.mzed.com/courses/writing-101/modules/6), [Maestro's Storyclock guide](https://maestrolearning.b-cdn.net/wp-content/uploads/2023/01/Storyclock-Applied-to-Learning-download-new.pdf).
+
+---
+
+The notes below describe the shared StoryCircle base.
 
 A screenwriting app whose main interface is Dan Harmon's eight-stage Story Circle. Each stage holds its own scenes, the wheel twirls and zooms like a lens so you can work on one slice, and a built-in Claude assistant drafts, rewrites and reviews scenes while you keep control of the text.
 
-Status: **prototype v0.2** (23 Oct 2026).
+
 
 ## Run it
 
@@ -14,6 +34,10 @@ npm run build:single   # one-file HTML preview in dist-single/
 ```
 
 ## Web version
+
+StoryClock preview: each push to this branch deploys to the Firebase preview channel `storyclock` (a separate URL that expires 30 days after the last push). The live site below is untouched.
+
+StoryCircle:
 
 Live at **https://storycircle-37772.web.app** (Firebase Hosting). Every push to `main` builds and deploys it through `.github/workflows/firebase-hosting.yml`, which signs in to Google without a stored key (Workload Identity Federation, set up once with `scripts/setup-github-deploy.sh` in Cloud Shell). Pull requests get a build check only.
 

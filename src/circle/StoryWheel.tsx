@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 import type { Project } from '../types'
 import { N, R, arcLength, layout, nearest, polar, sceneCenter, sector, textArc, wrap } from './geometry'
+import { mirrorOf, rangeLabel } from '../clock'
 
-export const HUES = [205, 178, 42, 14, 346, 318, 52, 232]
+/** One hue per hour, grouped by quarter: cool dawn, warm day, rose dusk, deep night. */
+export const HUES = [200, 186, 170, 48, 36, 22, 352, 336, 318, 268, 246, 222]
 const ZOOM_MIN = 1
 const ZOOM_MAX = 14
 const SCENE_ZOOM = 2.4
@@ -258,7 +260,18 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
     }
   })
 
-  const thresholds = [2, 6].map((i) => L.start[i] + L.width[i] / 2 + L.offset)
+  // Quarter lines sit where hours 12–1, 3–4, 6–7 and 9–10 begin: the 12, 3, 6 and 9 o'clock marks.
+  const quarters = [0, 3, 6, 9].map((i) => ({ label: i === 0 ? '12' : String(i), a: L.start[i] + L.offset }))
+
+  /** Angle of a scene's centre on the current layout. */
+  const sceneAngle = (id: string) => {
+    const i = project.stages.findIndex((s) => s.sceneIds.includes(id))
+    if (i < 0) return null
+    const ids = project.stages[i].sceneIds
+    return L.start[i] + L.offset + (L.width[i] * (ids.indexOf(id) + 0.5)) / ids.length
+  }
+  const focusIds = new Set(focusStage.sceneIds)
+  const mirror = mirrorOf(L.focus)
 
   return (
     <div
@@ -266,7 +279,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
       ref={wrapRef}
       tabIndex={0}
       role="application"
-      aria-label="Story Circle. Scroll or drag to rotate, pinch or use up and down arrows to zoom, Enter to open the scene under the needle."
+      aria-label="Story Clock. Scroll or drag to rotate, pinch or use up and down arrows to zoom, Enter to open the scene under the needle."
       onKeyDown={onKeyDown}
     >
       <svg
@@ -286,12 +299,12 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
           const stageLabelR = (R.stageIn + R.stageOut) / 2
           const labelRoom = arcLength(stageLabelR, L.width[i])
           return (
-            <g key={st.key} style={{ ['--h' as string]: HUES[i] }} className={`stage world-${st.world}${focused ? ' focused' : ''}`}>
+            <g key={st.key} style={{ ['--h' as string]: HUES[i] }} className={`stage world-${st.world}${focused ? ' focused' : ''}${i === mirror && !focused ? ' mirror' : ''}`}>
               <path d={sector(R.stageIn, R.stageOut, a0, a1)} className="stage-cell" data-hit={`stage:${i}`} />
               <path id={`sl-${i}`} d={textArc(stageLabelR, a0 + 1, a1 - 1)} fill="none" stroke="none" />
               <text className="stage-label" dominantBaseline="middle" pointerEvents="none">
                 <textPath href={`#sl-${i}`} startOffset="50%" textAnchor="middle">
-                  {labelRoom > 90 ? `${st.number}  ${st.name.toUpperCase()}` : labelRoom > 26 ? st.number : ''}
+                  {labelRoom > 170 ? `${st.name}  ·  ${rangeLabel(project, i)}` : labelRoom > 44 ? st.name : ''}
                 </textPath>
               </text>
               {n === 0 && (
@@ -326,7 +339,7 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
                         </text>
                       </>
                     )}
-                    {sc.alsoServes.length > 0 && room > 30 && (
+                    {project.connections.some((c) => c.from === id || c.to === id) && room > 30 && (
                       <circle cx={polar(R.sceneOut - 12, (s0 + s1) / 2)[0]} cy={polar(R.sceneOut - 12, (s0 + s1) / 2)[1]} r={3.5} className="serves-dot" pointerEvents="none" />
                     )}
                   </g>
@@ -335,12 +348,42 @@ export function StoryWheel({ project, openSceneId, onNeedle, onOpenScene, handle
             </g>
           )
         })}
-        {thresholds.map((a, j) => {
-          // Full threshold line reads as Harmon's order/chaos divide when zoomed out; ticks only once a slice opens.
+        {quarters.map(({ label, a }) => {
+          // Full quarter lines read as the clock's act marks when zoomed out; ticks only once a slice opens.
           const [x0, y0] = polar(view.zoom < 1.6 ? R.hub + 2 : R.sceneOut + 2, a)
-          const [x1, y1] = polar(R.rim + 18, a)
-          return <line key={j} x1={x0} y1={y0} x2={x1} y2={y1} className="threshold" pointerEvents="none" />
+          const [x1, y1] = polar(R.rim + 4, a)
+          const [tx, ty] = polar(R.rim + 16, a)
+          return (
+            <g key={label} pointerEvents="none">
+              <line x1={x0} y1={y0} x2={x1} y2={y1} className="threshold" />
+              <text x={tx} y={ty} className="quarter-label" textAnchor="middle" dominantBaseline="middle">{label}</text>
+            </g>
+          )
         })}
+        <g className="threads" pointerEvents="none">
+          {project.connections.map((c) => {
+            const a0 = sceneAngle(c.from)
+            const a1 = sceneAngle(c.to)
+            if (a0 === null || a1 === null) return null
+            // Threads leave from the seam between hours and scenes and bow inward with distance in time,
+            // so near threads stay over the hour ring and far ones cross under the hub.
+            let sep = Math.abs(a1 - a0) % 360
+            if (sep > 180) sep = 360 - sep
+            const mid = Math.abs(a1 - a0) > 180 ? (a0 + a1) / 2 + 180 : (a0 + a1) / 2
+            const r = R.stageOut + 3
+            const [x0, y0] = polar(r, a0)
+            const [x1, y1] = polar(r, a1)
+            const [cx, cy] = polar(r * Math.max(0, 1 - sep / 140), mid)
+            const hot = focusIds.has(c.from) || focusIds.has(c.to) || c.from === needleScene || c.to === needleScene
+            return (
+              <g key={c.id} className={`thread${hot ? ' hot' : ''}`}>
+                <path d={`M${x0} ${y0}Q${cx} ${cy} ${x1} ${y1}`} />
+                <circle cx={x0} cy={y0} r={3} className="thread-from" />
+                <circle cx={x1} cy={y1} r={3.5} className="thread-to" />
+              </g>
+            )
+          })}
+        </g>
         <path d={`M-9 ${-R.rim - 22} L9 ${-R.rim - 22} L0 ${-R.sceneOut - 2} Z`} className="needle" pointerEvents="none" />
       </svg>
       <div className="hub" data-hub>
