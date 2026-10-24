@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DraftVersion, Project } from './types'
-import { seedProject, uid } from './data/seed'
+import { rangeLabel } from './clock'
+import { normalizeProject, seedProject, uid } from './data/seed'
 
-const LEGACY_KEY = 'storycircle.project.v1'
-const LIB_KEY = 'storycircle.library.v1'
-const projectKey = (id: string) => `storycircle.project.${id}`
+const LIB_KEY = 'storyclock.library.v1'
+const projectKey = (id: string) => `storyclock.project.${id}`
 
 export interface LibraryEntry {
   id: string
@@ -34,14 +34,14 @@ function write(key: string, value: unknown) {
   }
 }
 
-/** Load the project library, moving a v0.1 single project into it on first run. */
+/** Load the project library, starting with the sample on first run. */
 function loadLibrary(): { lib: Library; project: Project } {
   const lib = read<Library>(LIB_KEY)
   if (lib && lib.entries.length) {
     const project = read<Project>(projectKey(lib.currentId))
-    if (project) return { lib, project }
+    if (project) return { lib, project: normalizeProject(project) }
   }
-  const project = read<Project>(LEGACY_KEY) ?? seedProject()
+  const project = seedProject()
   const id = uid()
   const fresh = { currentId: id, entries: [{ id, title: project.title, updatedAt: Date.now() }] }
   write(projectKey(id), project)
@@ -90,7 +90,7 @@ export function useProject() {
       write(projectKey(prev.lib.currentId), prev.project)
       const p = read<Project>(projectKey(id))
       if (!p) return prev
-      return { project: p, lib: { ...prev.lib, currentId: id } }
+      return { project: normalizeProject(p), lib: { ...prev.lib, currentId: id } }
     })
   }, [])
 
@@ -113,11 +113,11 @@ export function snapshot(text: string, source: DraftVersion['source'], note: str
   return { id: uid(), at: Date.now(), text, source, note }
 }
 
-/** Fountain export of every scene in circle order. */
+/** Fountain export of every scene in clock order; each hour is a section. */
 export function toFountain(p: Project): string {
-  const out: string[] = [`Title: ${p.title}`, `Notes: Exported from StoryCircle`, '', '']
-  for (const st of p.stages) {
-    out.push(`# ${st.number}. ${st.name}`, '')
+  const out: string[] = [`Title: ${p.title}`, `Notes: Exported from StoryClock`, '', '']
+  p.stages.forEach((st, i) => {
+    out.push(`# ${st.number}. ${st.name} (${rangeLabel(p, i)})`, '')
     for (const id of st.sceneIds) {
       const sc = p.scenes[id]
       if (!sc) continue
@@ -127,6 +127,6 @@ export function toFountain(p: Project): string {
       if (draft) out.push(draft, '')
       else out.push(sc.heading ? `${sc.heading.startsWith('INT') || sc.heading.startsWith('EXT') ? '' : '.'}${sc.heading}` : `.${sc.title.toUpperCase()}`, '', `[[Not yet drafted]]`, '')
     }
-  }
+  })
   return out.join('\n')
 }

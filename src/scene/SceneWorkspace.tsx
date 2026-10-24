@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import type { Project, Scene, StageKey } from '../types'
+import type { Project, Scene } from '../types'
 import { uid } from '../data/seed'
 import { ScreenplayEditor } from '../script/ScreenplayEditor'
 import { parse, pageEstimate } from '../script/fountain'
 import { FOCI, Notes, type AssistPreset } from '../ai/AssistPanel'
 import { HUES } from '../circle/StoryWheel'
+import { fmt, hourOf, payoffsTo, rangeLabel, sceneTime, setupsFrom, timeline } from '../clock'
 
 export type Step = 'brief' | 'beats' | 'draft' | 'review'
 export const STEPS: { key: Step; label: string }[] = [
@@ -40,6 +41,10 @@ interface Props {
   step: Step
   onStep: (s: Step) => void
   onChange: (fn: (s: Scene) => void) => void
+  /** Edits beyond this scene, such as the threads that connect it to others. */
+  onProject: (fn: (p: Project) => void) => void
+  /** Move this scene to the end of another hour. */
+  onMoveToHour: (i: number) => void
   onSelectText: (t: string | null) => void
   onAssist: (p: Omit<AssistPreset, 'nonce'>) => void
   onRestore: (versionId: string) => void
@@ -59,7 +64,7 @@ export function SceneWorkspace(props: Props) {
   return (
     <section className="panel scene-panel glass" style={{ ['--h' as string]: HUES[stageIndex] }} aria-label={`Scene: ${scene.title}`}>
       <header className="panel-head">
-        <span className="stage-chip"><i />{stage.number} · {stage.name}</span>
+        <span className="stage-chip"><i />{stage.name} · {rangeLabel(project, stageIndex)}</span>
         <span className="spacer" />
         <button className="icon-btn" onClick={props.onMinimize} aria-label="Minimise scene" title="Minimise">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden><path d="M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -105,7 +110,7 @@ export function SceneWorkspace(props: Props) {
   )
 }
 
-function BriefStep({ project, scene, stageIndex, onChange, onDelete }: Props) {
+function BriefStep({ project, scene, stageIndex, onChange, onProject, onMoveToHour, onDelete }: Props) {
   const [confirm, setConfirm] = useState(false)
   const stage = project.stages[stageIndex]
   const field = (key: 'purpose' | 'attempt' | 'resistance' | 'turn', label: string, placeholder: string) => (
@@ -114,8 +119,7 @@ function BriefStep({ project, scene, stageIndex, onChange, onDelete }: Props) {
       <textarea id={`scene-${key}`} rows={1} value={scene[key]} placeholder={placeholder} onChange={(e) => onChange((s) => void (s[key] = e.target.value))} />
     </label>
   )
-  const toggle = (k: StageKey) =>
-    onChange((s) => void (s.alsoServes = s.alsoServes.includes(k) ? s.alsoServes.filter((x) => x !== k) : [...s.alsoServes, k]))
+  const t = sceneTime(project, scene)
   return (
     <div className="step">
       <p className="step-intro">{stage.question}</p>
@@ -129,16 +133,36 @@ function BriefStep({ project, scene, stageIndex, onChange, onDelete }: Props) {
         {field('resistance', 'Resistance', 'What gets in the way?')}
       </div>
       {field('turn', 'Turn', 'What is different by the end?')}
-      <div className="field">
-        <span>Also serves</span>
-        <div className="chips">
-          {project.stages.filter((s) => s.key !== stage.key).map((s) => (
-            <button key={s.key} className={scene.alsoServes.includes(s.key) ? 'chip on' : 'chip'} onClick={() => toggle(s.key)}>
-              {s.number} {s.name}
-            </button>
-          ))}
-        </div>
+      <div className="field-row">
+        <label className="field">
+          <span>Hour on the clock</span>
+          <select id="scene-hour" className="hour-select" value={stageIndex} onChange={(e) => onMoveToHour(Number(e.target.value))}>
+            {project.stages.map((h, i) => (
+              <option key={h.key} value={i}>{h.name} · {rangeLabel(project, i)}</option>
+            ))}
+          </select>
+          <small className="meta">Or press and hold the scene on the wheel and drag it.</small>
+        </label>
+        <label className="field">
+          <span>Runtime</span>
+          <span className="runtime-input">
+            <input
+              id="scene-minutes"
+              type="number"
+              min={0}
+              step={0.5}
+              value={scene.minutes ?? ''}
+              placeholder={(Math.round(t.minutes * 10) / 10).toString()}
+              onChange={(e) => onChange((s) => void (s.minutes = e.target.value ? Math.max(0, Number(e.target.value)) : undefined))}
+            />
+            min
+          </span>
+          <small className="meta">
+            {t.source === 'set' ? 'Set by you. Clear it to estimate again.' : t.source === 'pages' ? `Estimated from the draft, about a minute a page.` : `An even share of ${stage.name} until there’s a draft.`} Starts near {fmt(timeline(project).start[scene.id] ?? 0)}.
+          </small>
+        </label>
       </div>
+      <Threads project={project} scene={scene} onProject={onProject} />
       <div className="danger-zone">
         {confirm ? (
           <>
@@ -150,6 +174,65 @@ function BriefStep({ project, scene, stageIndex, onChange, onDelete }: Props) {
           <button className="btn ghost small danger-text" onClick={() => setConfirm(true)}>Delete scene</button>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Setups this scene plants and payoffs it lands, linked to any other moment on the clock. */
+function Threads({ project, scene, onProject }: Pick<Props, 'project' | 'scene' | 'onProject'>) {
+  const [dir, setDir] = useState<'out' | 'in'>('out')
+  const [other, setOther] = useState('')
+  const [note, setNote] = useState('')
+  const { start } = timeline(project)
+  const others = project.stages.flatMap((st) => st.sceneIds).filter((id) => id !== scene.id)
+  const label = (id: string) => {
+    const sc = project.scenes[id]
+    const h = hourOf(project, id)
+    return `${fmt(start[id] ?? 0)} · ${sc?.title ?? 'Missing scene'}${h >= 0 ? ` (${project.stages[h].name})` : ''}`
+  }
+  const links = [...setupsFrom(project, scene.id).map((c) => ({ c, out: true })), ...payoffsTo(project, scene.id).map((c) => ({ c, out: false }))]
+  const add = () => {
+    if (!other) return
+    onProject((p) => void p.connections.push({ id: uid(), from: dir === 'out' ? scene.id : other, to: dir === 'out' ? other : scene.id, note: note.trim() }))
+    setOther('')
+    setNote('')
+  }
+  return (
+    <div className="field threads-field">
+      <span>Threads across the clock</span>
+      {links.length > 0 && (
+        <ul className="thread-list">
+          {links.map(({ c, out }) => (
+            <li key={c.id}>
+              <span className={`thread-dir ${out ? 'out' : 'in'}`}>{out ? 'Sets up' : 'Pays off'}</span>
+              <span className="scene-row-text">
+                <strong>{label(out ? c.to : c.from)}</strong>
+                <input
+                  className="thread-note"
+                  value={c.note}
+                  placeholder="What connects them?"
+                  aria-label="Thread note"
+                  onChange={(e) => onProject((p) => void (p.connections.find((x) => x.id === c.id)!.note = e.target.value))}
+                />
+              </span>
+              <button className="icon-btn" aria-label="Remove thread" title="Remove thread" onClick={() => onProject((p) => void (p.connections = p.connections.filter((x) => x.id !== c.id)))}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="thread-add">
+        <select value={dir} onChange={(e) => setDir(e.target.value as 'out' | 'in')} aria-label="Direction">
+          <option value="out">Sets up</option>
+          <option value="in">Pays off</option>
+        </select>
+        <select value={other} onChange={(e) => setOther(e.target.value)} aria-label="Other scene">
+          <option value="">Choose a scene…</option>
+          {others.map((id) => <option key={id} value={id}>{label(id)}</option>)}
+        </select>
+        <input value={note} placeholder="Note (optional)" onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <button className="btn secondary small" disabled={!other} onClick={add}>Connect</button>
+      </div>
+      <small className="meta">Threads land wherever the story needs them: 5 to 8 as readily as 1 to 11.</small>
     </div>
   )
 }

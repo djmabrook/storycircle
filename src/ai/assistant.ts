@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Project, Scene } from '../types'
+import { fmt, fmtMinutes, hourLoad, mirrorOf, payoffsTo, rangeLabel, sceneTime, setupsFrom, timeline } from '../clock'
 
 export type AssistKind = 'draft' | 'rewrite' | 'review' | 'ideas' | 'beats' | 'ask'
-export type ProviderId = 'anthropic' | 'claude-app' | 'demo'
+export type ProviderId = 'anthropic' | 'claude-app' | 'claude-code' | 'demo'
 
 export const DRAFT_MODEL = 'claude-opus-5-5'
 export const REVIEW_MODEL = 'claude-haiku-5-5'
@@ -24,7 +25,7 @@ export interface AssistOptions {
 
 // ---------- Settings ----------
 
-const KEY_STORE = 'storycircle.apiKey'
+const KEY_STORE = 'storyclock.apiKey'
 
 export function getApiKey(): string {
   try {
@@ -55,9 +56,43 @@ function hostSample(): Promise<SampleFn> {
   return samplePromise
 }
 
+// ---------- Claude Code (desktop) ----------
+
+const USE_CC = 'storyclock.useClaudeCode'
+const isTauri = () => '__TAURI_INTERNALS__' in window
+
+/** Whether the writer wants the desktop app to use Claude Code when it's installed (default yes). */
+export function getUseClaudeCode(): boolean {
+  try {
+    return localStorage.getItem(USE_CC) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export function setUseClaudeCode(on: boolean) {
+  try {
+    localStorage.setItem(USE_CC, on ? 'on' : 'off')
+  } catch {
+    /* ignore */
+  }
+}
+
+let ccPath: Promise<string | null> | null = null
+/** Path of the writer's Claude Code install, when this is the desktop app and it's found. */
+export function claudeCodePath(): Promise<string | null> {
+  if (!isTauri()) return Promise.resolve(null)
+  ccPath ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string | null>('claude_code_path'))
+    .catch(() => null)
+  return ccPath
+}
+
 export async function activeProvider(): Promise<ProviderId> {
-  // Inside Claude (web preview) the viewer's own account answers; the desktop app uses the API key.
+  // Inside Claude the viewer's own account answers. The desktop app prefers the
+  // writer's Claude Code (their subscription), then an API key.
   if (await hostSample()) return 'claude-app'
+  if (getUseClaudeCode() && (await claudeCodePath())) return 'claude-code'
   if (getApiKey()) return 'anthropic'
   return 'demo'
 }
@@ -65,6 +100,7 @@ export async function activeProvider(): Promise<ProviderId> {
 export const providerLabel: Record<ProviderId, string> = {
   anthropic: 'Claude API',
   'claude-app': 'Your Claude account',
+  'claude-code': 'Claude Code on this computer',
   demo: 'Demo mode (no key set)',
 }
 
@@ -78,11 +114,22 @@ function sceneBrief(sc: Scene, withDraft: boolean) {
     sc.attempt && `What someone attempts: ${sc.attempt}`,
     sc.resistance && `Resistance or complication: ${sc.resistance}`,
     sc.turn && `Turn or ending condition: ${sc.turn}`,
-    sc.alsoServes.length > 0 && `Also serves stages: ${sc.alsoServes.join(', ')}`,
     sc.beats.length > 0 && `Beat slices:\n${sc.beats.map((b) => `- ${b.text}`).join('\n')}`,
     withDraft && sc.draft.trim() && `Current accepted draft:\n<draft>\n${sc.draft}\n</draft>`,
   ]
   return lines.filter(Boolean).join('\n')
+}
+
+/** Where a scene sits in time and what it is threaded to. */
+function sceneThreads(p: Project, sc: Scene) {
+  const t = sceneTime(p, sc)
+  const start = timeline(p).start[sc.id] ?? 0
+  const title = (id: string) => p.scenes[id]?.title ?? 'missing scene'
+  return [
+    `Screen time: about ${fmtMinutes(t.minutes)}, starting near ${fmt(start)} of a ${p.runtime}-minute film.`,
+    ...setupsFrom(p, sc.id).map((c) => `Sets up "${title(c.to)}"${c.note ? `: ${c.note}` : ''}`),
+    ...payoffsTo(p, sc.id).map((c) => `Pays off "${title(c.from)}"${c.note ? `: ${c.note}` : ''}`),
+  ].join('\n')
 }
 
 function orderedScenes(p: Project) {
@@ -96,9 +143,13 @@ function projectContext(p: Project) {
     p.theme && `Thematic question: ${p.theme}`,
     p.tone && `Tone: ${p.tone}`,
     `Characters:\n${p.characters.map((c) => `- ${c.name}: ${c.notes}`).join('\n')}`,
-    `Story Circle (writer's current interpretation; stages may be partial or intentionally unusual):\n${p.stages
-      .map((s) => `${s.number}. ${s.name}: ${s.idea || '(open)'}`)
+    `Story Clock, ${p.runtime}-minute runtime, twelve hours of about ${fmtMinutes(p.runtime / 12)} each (writer's current notes; hours may be partial, empty or intentionally unusual):\n${p.stages
+      .map((s, i) => `${s.name} o'clock (${rangeLabel(p, i)}), ${s.sceneIds.length} scene${s.sceneIds.length === 1 ? '' : 's'}: ${s.idea || '(open)'}`)
       .join('\n')}`,
+    p.connections.length > 0 &&
+      `Threads (setups and payoffs across the clock):\n${p.connections
+        .map((c) => `- "${p.scenes[c.from]?.title}" sets up "${p.scenes[c.to]?.title}"${c.note ? `: ${c.note}` : ''}`)
+        .join('\n')}`,
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -111,32 +162,42 @@ function neighbours(p: Project, sceneId: string) {
     const x = all[j]
     if (!x) return ''
     const tail = x.scene.draft.trim() ? `\nEnds with:\n${x.scene.draft.trim().slice(-700)}` : ''
-    return `${label} (stage ${x.stage.number} ${x.stage.name}): ${x.scene.title}. ${x.scene.purpose}${tail}`
+    return `${label} (${x.stage.name} o'clock): ${x.scene.title}. ${x.scene.purpose}${tail}`
   }
   return [pick(i - 1, 'Previous scene'), pick(i + 1, 'Next scene')].filter(Boolean).join('\n\n')
 }
 
-const SYSTEM_WRITER = `You are the writing collaborator inside StoryCircle, a screenwriting app organised around Dan Harmon's eight-stage Story Circle. The writer owns the story; you turn their intentions and raw beat material into workable screenplay pages they will revise directly.
+const SYSTEM_WRITER = `You are the writing collaborator inside StoryClock, a screenwriting app organised around Seth Worley's Storyclock, where the clock face is the film's runtime and the writer looks for gaps, pacing and symmetry: moments set up at one time that pay off at another. The writer owns the story; you turn their intentions and raw beat material into workable screenplay pages they will revise directly.
 
 Write in Fountain screenplay format: scene headings (INT./EXT.), action, CHARACTER cues in caps, parentheticals, dialogue. Dramatise through behaviour and dialogue rather than restating the outline. Preserve established facts, character knowledge and continuity from the context. Give each speaker a distinct aim and voice, and let subtext carry what the notes state plainly.
 
 If a missing detail would materially change the scene, make a visibly provisional choice and mark it with a Fountain note like [[Assumed: ...]]. Return only the screenplay text, with no preamble.`
 
-const SYSTEM_REVIEW = `You are a script reader inside StoryCircle, a screenwriting app organised around Dan Harmon's Story Circle. Give focused, specific feedback the writer can act on. Do not rewrite the scene and do not give scores.
+const SYSTEM_REVIEW = `You are a script reader inside StoryClock, a screenwriting app organised around Seth Worley's Storyclock, where the clock face is the film's runtime and the writer looks for gaps, pacing and symmetry: moments set up at one time that pay off at another. Give focused, specific feedback the writer can act on. Do not rewrite the scene and do not give scores.
 
-For each finding: quote or point to the exact passage, explain the possible issue, and offer a question or revision direction. Treat the circle as a lens, not a rule; respect deliberate exceptions and distinctive voice. Keep it to the 3 to 6 findings that matter most, most important first. Format each as:
+For each finding: quote or point to the exact passage, explain the possible issue, and offer a question or revision direction. Treat the clock as a lens, not a rule; notice setups that never pay off and payoffs that were never planted; respect deliberate exceptions and distinctive voice. Keep it to the 3 to 6 findings that matter most, most important first. Format each as:
 **Short title**
 > quoted passage
 Observation and suggestion.`
 
-const SYSTEM_IDEAS = `You are a story-development collaborator inside StoryCircle, a screenwriting app built on Dan Harmon's Story Circle. Propose concrete scenes that could perform a stage's narrative work for this specific story. Favour scenes driven by a character's choice with a visible consequence. Respond with only a JSON array of 3 objects: {"title": string, "heading": string, "purpose": string, "beats": string[]}.`
+const SYSTEM_IDEAS = `You are a story-development collaborator inside StoryClock, a screenwriting app built on Seth Worley's Storyclock, where the clock face is the film's runtime and the writer looks for gaps, pacing and symmetry: moments set up at one time that pay off at another. Propose concrete scenes for one hour of the clock in this specific story. Fill gaps from material the story already has rather than inventing unrelated subplots: favour scenes that plant something a later hour can pay off, or pay off something planted earlier. Favour scenes driven by a character's choice with a visible consequence. Respond with only a JSON array of 3 objects: {"title": string, "heading": string, "purpose": string, "beats": string[]}.`
 
 export function buildPrompt(r: AssistRequest): { system: string; user: string; model: string } {
   const p = r.project
   const st = p.stages[r.stageIndex]
   const sc = r.sceneId ? p.scenes[r.sceneId] : undefined
   const ctx = projectContext(p)
-  const stageLine = `Focused stage: ${st.number}. ${st.name} — ${st.question}\nWriter's idea for this stage: ${st.idea || '(open)'}`
+  const load = hourLoad(p, r.stageIndex)
+  const across = p.stages[mirrorOf(r.stageIndex)]
+  const stageLine = [
+    `Focused hour: ${st.name} o'clock (${rangeLabel(p, r.stageIndex)}) — ${st.question}`,
+    `Writer's idea for this hour: ${st.idea || '(open)'}`,
+    `Estimated time used: ${fmtMinutes(load.used)} of ${fmtMinutes(load.slot)}.`,
+    `Across the clock (${across.name}): ${across.sceneIds.map((id) => p.scenes[id].title).join(', ') || '(empty)'}. Threads can land anywhere, not only here.`,
+    sc && sceneThreads(p, sc),
+  ]
+    .filter(Boolean)
+    .join('\n')
 
   switch (r.kind) {
     case 'draft':
@@ -169,21 +230,21 @@ export function buildPrompt(r: AssistRequest): { system: string; user: string; m
       return {
         model: DRAFT_MODEL,
         system: SYSTEM_IDEAS,
-        user: `${ctx}\n\n${stageLine}\n\nExisting scenes in this stage:\n${
+        user: `${ctx}\n\n${stageLine}\n\nExisting scenes in this hour:\n${
           st.sceneIds.map((id) => `- ${p.scenes[id].title}: ${p.scenes[id].purpose}`).join('\n') || '(none)'
-        }\n\n${r.instruction ? `Writer's direction: ${r.instruction}\n` : ''}Propose three new scenes for this stage.`,
+        }\n\n${r.instruction ? `Writer's direction: ${r.instruction}\n` : ''}Propose three new scenes for this hour, each fitting its time.`,
       }
     case 'beats':
       return {
         model: DRAFT_MODEL,
-        system: `You are a story-development collaborator inside StoryCircle, a screenwriting app built on Dan Harmon's Story Circle. Propose beat slices for one scene: concrete actions, lines of dialogue, images or facts the scene could contain, each under 20 words, in story order. Respond with only a JSON array of 5 strings.`,
+        system: `You are a story-development collaborator inside StoryClock, a screenwriting app built on Seth Worley's Storyclock, where the clock face is the film's runtime and the writer looks for gaps, pacing and symmetry: moments set up at one time that pay off at another. Propose beat slices for one scene: concrete actions, lines of dialogue, images or facts the scene could contain, each under 20 words, in story order. Respond with only a JSON array of 5 strings.`,
         user: `${ctx}\n\n${stageLine}\n\n${sc ? neighbours(p, sc.id) : ''}\n\nScene:\n${sc ? sceneBrief(sc, false) : ''}\n\n${r.instruction ? `Writer's direction: ${r.instruction}\n` : ''}Propose five new beat slices that build on the existing ones without repeating them.`,
       }
     case 'ask':
     default:
       return {
         model: DRAFT_MODEL,
-        system: `You are the writing collaborator inside StoryCircle, a screenwriting app built on Dan Harmon's Story Circle. Answer the writer's question about their story concisely and concretely. The writer decides; offer options rather than verdicts.`,
+        system: `You are the writing collaborator inside StoryClock, a screenwriting app built on Seth Worley's Storyclock, where the clock face is the film's runtime and the writer looks for gaps, pacing and symmetry: moments set up at one time that pay off at another. Answer the writer's question about their story concisely and concretely. The writer decides; offer options rather than verdicts.`,
         user: `${ctx}\n\n${stageLine}\n\n${sc ? `Open scene:\n${sceneBrief(sc, true)}\n\n` : ''}Question: ${r.instruction}`,
       }
   }
@@ -226,6 +287,45 @@ async function viaHost(r: AssistRequest, o: AssistOptions): Promise<string> {
     cache: false,
   })
   return res.text
+}
+
+/** Claude Code takes model aliases, which follow whatever the writer's plan offers. */
+const CC_MODEL = (model: string) => (model === REVIEW_MODEL ? 'haiku' : 'opus')
+
+async function viaClaudeCode(r: AssistRequest, o: AssistOptions): Promise<string> {
+  const { invoke, Channel } = await import('@tauri-apps/api/core')
+  const { system, user, model } = buildPrompt(r)
+  const id = Math.random().toString(36).slice(2)
+  let text = ''
+  let result: { text: string; error: boolean } | null = null
+  const lines = new Channel<string>()
+  lines.onmessage = (line) => {
+    let ev: { type?: string; event?: { type?: string; delta?: { type?: string; text?: string } }; is_error?: boolean; result?: string }
+    try {
+      ev = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta') {
+      text += ev.event.delta.text ?? ''
+      o.onText(text)
+    } else if (ev.type === 'result') result = { text: ev.result ?? '', error: !!ev.is_error }
+  }
+  const stop = () => void invoke('claude_code_cancel', { id })
+  o.signal.addEventListener('abort', stop)
+  try {
+    await invoke('claude_code_run', { id, prompt: user, system, model: CC_MODEL(model), onLine: lines })
+  } catch (e) {
+    if (o.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    throw new Error(`Claude Code: ${e}`)
+  } finally {
+    o.signal.removeEventListener('abort', stop)
+  }
+  if (o.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  const done = result as { text: string; error: boolean } | null
+  // Not signed in, out of usage, and similar arrive as an error result with a readable message.
+  if (done?.error) throw new Error(`Claude Code: ${done.text || 'the request failed.'}`)
+  return done?.text || text
 }
 
 const DEMO: Record<AssistKind, string> = {
@@ -272,7 +372,7 @@ The parenthetical does the work. What small behaviour earlier in the scene shows
 The stranded vehicle is anonymous. Is there a caller from the Search scenes who could be in it, so Take costs Mara something personal?`,
   ideas: `[{"title":"Leila's map","heading":"INT. HILLTOP STATION - NIGHT","purpose":"Leila builds a live map from caller reports and Mara refuses to look at it.","beats":["Sticky notes cover the window glass","Mara turns her chair away"]},{"title":"The unverified caller","heading":"INT. HILLTOP STATION - LATER","purpose":"A child calls in a sighting Mara won't broadcast without proof.","beats":["Leila puts the child on air herself","Mara cuts the feed"]},{"title":"Generator fails","heading":"EXT. HILLTOP STATION - NIGHT","purpose":"In the dark, Mara has to trust Leila's hands on the wiring.","beats":["Rain, a flashlight in Mara's teeth","Leila talks her through it"]}]`,
   beats: `["Mara rehearses the route under her breath before keying the mic","Leila pins a caller's sketch of the flooded underpass to the wall","The generator stutters; every light in the room dims at once","Mara: 'Certainty is the service. Doubt is static.'","Leila quietly writes the levee date on the map in red marker"]`,
-  ask: `Two options to consider. First, keep Mara's motive as pride, and make the cost land on someone she personally vouched for earlier. Second, shift it to panic: she grabs the old map because it's the only thing in the room she understands. The second makes Return easier to earn, since correcting herself becomes an act of steadiness rather than humility.`,
+  ask: `Two options to consider. First, keep Mara's motive as pride, and make the cost land on someone she personally vouched for earlier. Second, shift it to panic: she grabs the old map because it's the only thing in the room she understands. The second makes the 9–10 correction easier to earn, since correcting herself becomes an act of steadiness rather than humility.`,
 }
 
 async function viaDemo(r: AssistRequest, o: AssistOptions): Promise<string> {
@@ -289,7 +389,7 @@ async function viaDemo(r: AssistRequest, o: AssistOptions): Promise<string> {
 
 export async function runAssist(r: AssistRequest, o: AssistOptions): Promise<{ text: string; provider: ProviderId }> {
   const provider = await activeProvider()
-  const fn = provider === 'anthropic' ? viaApi : provider === 'claude-app' ? viaHost : viaDemo
+  const fn = provider === 'anthropic' ? viaApi : provider === 'claude-app' ? viaHost : provider === 'claude-code' ? viaClaudeCode : viaDemo
   return { text: await fn(r, o), provider }
 }
 

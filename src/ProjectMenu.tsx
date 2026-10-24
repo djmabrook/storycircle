@@ -62,7 +62,7 @@ export function ProjectMenu(p: Props) {
       {open && (
         <div className="menu glass" role="menu">
           <button role="menuitem" onClick={act(p.onNewBlank)}>
-            <span>New project</span><small>Empty circle</small>
+            <span>New project</span><small>Empty clock</small>
           </button>
           <button role="menuitem" onClick={act(p.onNewSample)}>
             <span>New from sample</span><small>The Last Broadcast</small>

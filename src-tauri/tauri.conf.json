@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "StoryCircle",
+  "productName": "StoryClock",
   "version": "0.1.0",
-  "identifier": "app.storycircle.desktop",
+  "identifier": "app.storyclock.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "StoryCircle",
+        "title": "StoryClock",
         "width": 1440,
         "height": 920,
         "resizable": true,

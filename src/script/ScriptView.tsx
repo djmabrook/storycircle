@@ -1,3 +1,4 @@
+import { rangeLabel } from '../clock'
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import type { Project } from '../types'
 import { ScreenplayEditor } from './ScreenplayEditor'
@@ -22,7 +23,7 @@ interface Props {
   onExport: () => void
 }
 
-/** The whole screenplay in circle order, formatted and editable, kept in step with the wheel. */
+/** The whole screenplay in clock order, formatted and editable, kept in step with the wheel. */
 export function ScriptView(props: Props) {
   const { project } = props
   const scroller = useRef<HTMLDivElement>(null)
@@ -83,7 +84,7 @@ export function ScriptView(props: Props) {
         <div className="page full">
           <div className="title-page">
             <h1>{project.title.toUpperCase()}</h1>
-            <p>Written with StoryCircle</p>
+            <p>Written with StoryClock</p>
             <p className="logline">{project.logline}</p>
           </div>
           {ordered.map(({ st, si, sc }, i) => {
@@ -100,7 +101,7 @@ export function ScriptView(props: Props) {
               >
                 {firstOfStage && (
                   <div className="stage-mark" aria-hidden>
-                    <span>{st.number}</span> {st.name}
+                    <span>{st.name}</span> {rangeLabel(project, si)}
                   </div>
                 )}
                 <span className="scene-no left">{sceneNo}</span>

@@ -1,0 +1,73 @@
+# StoryClock desktop downloads: builds the Mac (Apple Silicon + Intel) and Windows
+# apps on every push to this branch and posts them to the "StoryClock (latest build)"
+# release, replacing the previous build. The apps are unsigned, so macOS asks for
+# right-click → Open the first time.
+name: StoryClock desktop build
+
+on:
+  push:
+    branches: [claude/project-thread-u4l2on]
+    paths: ['src/**', 'src-tauri/**', 'index.html', 'package*.json', '.github/workflows/desktop-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: storyclock-desktop
+  cancel-in-progress: true
+
+env:
+  TAG: storyclock-latest
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      # One release always holds the newest build; drop the old one and its tag first.
+      - run: gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    needs: reset
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            args: ''
+            targets: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: StoryClock (latest build)
+          releaseBody: |
+            Latest StoryClock desktop build from commit ${{ github.sha }}.
+
+            **Mac:** download the `.dmg`, open it, drag StoryClock to Applications. The first time, right-click StoryClock → Open → Open (it isn't signed with an Apple developer certificate yet).
+            **Windows:** download the `.msi` or `-setup.exe` and run it. If SmartScreen warns, click More info → Run anyway.
+
+            **Assist:** with Claude Code installed and signed in, StoryClock uses your Claude subscription automatically. Otherwise add an Anthropic API key in the connection pill, or try demo mode.
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}

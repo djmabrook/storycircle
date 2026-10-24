@@ -145,7 +145,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .chip:hover { border-color: var(--muted); }
 .chip.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.status.anthropic, .status.claude-app { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.status.anthropic, .status.claude-app, .status.claude-code { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
 .status.demo { background: var(--accent); }
 
 /* Shell geometry */
@@ -454,3 +454,60 @@ body, .glass, .page, .stage-cell, .scene-cell, .hub { transition-property: backg
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Story Clock ---------- */
+.quarter-label { font: 750 15px var(--font-display); fill: var(--muted); }
+.stage.mirror .stage-cell { stroke: hsl(var(--h) 55% 50%); stroke-dasharray: 3 4; stroke-width: 1.5; }
+.thread path { fill: none; stroke: var(--accent); stroke-width: 1.6; opacity: 0.45; stroke-linecap: round; transition: opacity 0.25s, stroke-width 0.25s; }
+.thread circle { fill: var(--accent); opacity: 0.45; }
+.thread .thread-to { fill: var(--surface); stroke: var(--accent); stroke-width: 1.6; }
+.thread.hot path { opacity: 0.95; stroke-width: 2.4; }
+.thread.hot circle { opacity: 1; }
+.wheel.faded .thread path { opacity: 0.18; }
+
+.runtime-setting { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 6px 3px 12px; }
+.runtime-setting input { width: 52px; border: 0; background: var(--surface-2); border-radius: 999px; padding: 3px 8px; font: 600 12px var(--font-ui, inherit); color: var(--ink); text-align: right; }
+.runtime-setting input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.runtime-setting small { color: var(--muted); padding: 2px 8px; border-left: 1px solid var(--line); }
+.runtime-setting small.over { color: var(--danger); }
+
+.hour-range { font: 500 14px var(--font-ui, inherit); color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+.load-meter { display: flex; flex-direction: column; gap: 5px; }
+.load-bar { position: relative; display: flex; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.load-bar i { display: block; height: 100%; background: hsl(var(--h) 55% 50%); border-radius: 99px; }
+.load-bar b { position: absolute; right: 0; top: 0; height: 100%; background: var(--danger); opacity: 0.75; }
+.load-meter.long .meta { color: var(--danger); }
+.load-meter.empty .load-bar { background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 10px); }
+
+.scene-time { display: flex; flex-direction: column; align-items: flex-end; min-width: 46px; font-variant-numeric: tabular-nums; }
+.scene-time strong { font: 650 13px var(--font-display); color: hsl(var(--h) 55% var(--hue-ink-l)); }
+.scene-time small { font-size: 10.5px; color: var(--muted); }
+.scene-time small.set { color: var(--ink-2); font-weight: 600; }
+
+.threads-head { margin-top: 10px; }
+.thread-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.thread-list li { display: flex; align-items: center; gap: 8px; }
+.thread-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; border-radius: 12px; border: 1px dashed var(--line); background: transparent; }
+.thread-row:hover { border-color: var(--accent); }
+.thread-dir { flex: none; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.thread-dir.in { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--accent); }
+.thread-note { margin-top: 3px; padding: 4px 8px !important; font-size: 12px; }
+.thread-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.thread-add select, .thread-add input { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 12.5px; min-width: 0; }
+.thread-add select:nth-child(2) { flex: 1 1 180px; }
+.thread-add input { flex: 1 1 120px; }
+.runtime-input { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.runtime-input input { width: 90px; }
+.mirror-hint { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 720px) { .runtime-setting small { display: none; } }
+.scene-cell.lifting { opacity: 0.35; stroke-dasharray: 4 3; }
+.wheel.lifting svg { cursor: grabbing; }
+.drop-mark line { stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
+.drop-mark circle { fill: var(--accent); }
+.drop-mark .drop-hour { fill: hsl(var(--h) 70% 55% / 0.28); stroke: var(--accent); stroke-width: 2; }
+.hour-select { width: 100%; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 10px; padding: 8px 10px; font: inherit; color: var(--ink); }
+.cc-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.cc-toggle { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.cc-toggle input { margin-top: 3px; accent-color: var(--accent); }
+.cc-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.cc-toggle small { word-break: break-all; }

@@ -1,7 +1,7 @@
 [package]
 name = "storycircle"
 version = "0.1.0"
-description = "StoryCircle screenwriting app"
+description = "StoryClock screenwriting app"
 authors = ["Alberto"]
 license = ""
 repository = ""

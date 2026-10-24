@@ -4,13 +4,14 @@ import { SceneWorkspace, firstOpenStep, type Step, STEPS } from './scene/SceneWo
 import { StageCard } from './stage/StageCard'
 import { ScriptView, type ScriptHandle } from './script/ScriptView'
 import { AssistDock, type AssistPreset } from './ai/AssistPanel'
-import { activeProvider, getApiKey, providerLabel, setApiKey, DRAFT_MODEL, REVIEW_MODEL, type AssistKind, type ProviderId, type SceneIdea } from './ai/assistant'
+import { activeProvider, claudeCodePath, getApiKey, getUseClaudeCode, providerLabel, setApiKey, setUseClaudeCode, DRAFT_MODEL, REVIEW_MODEL, type AssistKind, type ProviderId, type SceneIdea } from './ai/assistant'
 import { snapshot, toFountain, useProject } from './store'
 import { blankProject, emptyScene, seedProject, uid } from './data/seed'
 import { ProjectMenu } from './ProjectMenu'
 import { pickTextFile, projectFromFile, projectToFile, safeName, saveTextFile, PROJECT_EXT } from './files'
 import { pageEstimate, parse } from './script/fountain'
 import type { Scene } from './types'
+import { fmt, fmtMinutes, hourRange, timeline } from './clock'
 
 type View = 'circle' | 'scene' | 'script'
 
@@ -24,7 +25,7 @@ export default function App() {
   const [full, setFull] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
-      const t = localStorage.getItem('storycircle.theme')
+      const t = localStorage.getItem('storyclock.theme')
       if (t === 'light' || t === 'dark') return t
     } catch {
       /* ignore */
@@ -35,7 +36,7 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     try {
-      localStorage.setItem('storycircle.theme', theme)
+      localStorage.setItem('storyclock.theme', theme)
     } catch {
       /* ignore */
     }
@@ -90,7 +91,7 @@ export default function App() {
   const assistLabel =
     assistSceneId && project.scenes[assistSceneId]
       ? `${project.scenes[assistSceneId].title}${view === 'scene' ? ` · ${STEPS.find((s) => s.key === step)?.label}` : ''}`
-      : `Stage ${project.stages[assistStage].number} · ${project.stages[assistStage].name}`
+      : `Hour ${project.stages[assistStage].name}`
 
   const askAssist = (p: Omit<AssistPreset, 'nonce'>) => {
     setAssistOpen(true)
@@ -153,6 +154,20 @@ export default function App() {
     return sc
   }
 
+  /** Move a scene to position `index` of hour `stage`; the screenplay and timings follow clock order. */
+  const moveScene = (id: string, stage: number, index: number) => {
+    const from = stageOf(id)
+    if (from < 0) return
+    const k = project.stages[from].sceneIds.indexOf(id)
+    const at = from === stage && k < index ? index - 1 : index
+    if (from === stage && at === k) return
+    update((p) => {
+      p.stages[from].sceneIds.splice(k, 1)
+      p.stages[stage].sceneIds.splice(Math.min(at, p.stages[stage].sceneIds.length), 0, id)
+    })
+    setToast(from === stage ? `Reordered “${project.scenes[id].title}”` : `Moved “${project.scenes[id].title}” to ${project.stages[stage].name}`)
+  }
+
   const exportFountain = async () => {
     try {
       if (await saveTextFile(`${safeName(project.title)}.fountain`, toFountain(project), 'fountain')) setToast('Fountain script saved')
@@ -210,6 +225,7 @@ export default function App() {
   const ordered = project.stages.flatMap((s) => s.sceneIds.map((id) => project.scenes[id]))
   const pages = ordered.reduce((a, sc) => a + (sc.draft.trim() ? pageEstimate(parse(sc.draft)) : 0), 0)
   const anyDraft = ordered.some((sc) => sc.draft.trim())
+  const est = timeline(project)
 
   const dockTab = (v: View, label: React.ReactNode, sub?: string) => (
     <button
@@ -246,11 +262,11 @@ export default function App() {
   return (
     <div className={`app view-${view}${panelUp ? ' panel-up' : ''}${full && panelUp ? ' full' : ''}`}>
       <div className="backdrop">
-        <StoryWheel project={project} openSceneId={view === 'scene' ? openSceneId : view === 'script' ? scriptSceneId : null} onNeedle={onNeedle} onOpenScene={onWheelOpen} handle={wheel} faded={panelUp && view !== 'circle'}>
+        <StoryWheel project={project} openSceneId={view === 'scene' ? openSceneId : view === 'script' ? scriptSceneId : null} onNeedle={onNeedle} onOpenScene={onWheelOpen} onMoveScene={moveScene} handle={wheel} faded={panelUp && view !== 'circle'}>
           <div className="hub-inner" style={{ ['--h' as string]: HUES[needle.stage] }}>
-            <span className="hub-num">{project.stages[needle.stage].number}</span>
-            <span className="hub-name">{project.stages[needle.stage].name}</span>
-            <span className="hub-scene">{needle.sceneId ? project.scenes[needle.sceneId]?.title : `${project.stages[needle.stage].sceneIds.length} scenes`}</span>
+            <span className="hub-num">{fmt(needle.sceneId ? (est.start[needle.sceneId] ?? 0) : hourRange(project, needle.stage)[0])}</span>
+            <span className="hub-name">{project.stages[needle.stage].name} o’clock</span>
+            <span className="hub-scene">{needle.sceneId ? project.scenes[needle.sceneId]?.title : `${project.stages[needle.stage].sceneIds.length} scene${project.stages[needle.stage].sceneIds.length === 1 ? '' : 's'}`}</span>
             <button className="hub-assist" onClick={() => { if (needle.sceneId && view === 'circle') showScene(needle.sceneId); setAssistOpen(true) }} aria-label="Open the writing assistant">
               ✦
             </button>
@@ -262,9 +278,9 @@ export default function App() {
         <div className="brand">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
             <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
-            <circle cx="12" cy="3.5" r="2.2" fill="var(--accent)" />
+            <path d="M12 12V6.5M12 12l3.6 2.2" stroke="var(--accent)" strokeWidth="2.2" strokeLinecap="round" />
           </svg>
-          StoryCircle
+          StoryClock
         </div>
         <ProjectMenu
           title={project.title}
@@ -280,6 +296,22 @@ export default function App() {
           onDelete={deleteProject}
         />
         <span className="spacer" />
+        <label className="runtime-setting" title="The clock face is the whole film. Each hour is a twelfth of this runtime.">
+          <span>Runtime</span>
+          <input
+            id="runtime"
+            type="number"
+            min={10}
+            max={300}
+            step={5}
+            value={project.runtime}
+            onChange={(e) => { const v = Number(e.target.value); if (v > 0) update((p) => void (p.runtime = Math.min(300, v))) }}
+          />
+          <span>min</span>
+          <small className={est.total > project.runtime * 1.1 ? 'over' : ''} title="Every scene’s estimated runtime added up: set by you, from page count, or an even share of its hour">
+            est. {fmtMinutes(est.total)}
+          </small>
+        </label>
         <button
           className="theme-toggle"
           onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -312,6 +344,7 @@ export default function App() {
           })}
           onAddScene={() => { const sc = addScene(needle.stage); showScene(sc.id, 'brief'); requestAnimationFrame(() => wheel.current?.goToScene(sc.id)) }}
           onSuggest={() => askAssist({ kind: 'ideas', autoRun: true })}
+          onGoToHour={(i) => wheel.current?.goToStage(i, Math.max(needle.zoom, 1.6))}
           onMinimize={() => setMinimized(true)}
         />
       )}
@@ -325,6 +358,8 @@ export default function App() {
           step={step}
           onStep={setStep}
           onChange={(fn) => editScene(openScene.id, fn)}
+          onProject={update}
+          onMoveToHour={(i) => moveScene(openScene.id, i, project.stages[i].sceneIds.length)}
           onSelectText={(t) => setSelection(t ? { sceneId: openScene.id, text: t } : null)}
           onAssist={askAssist}
           onRestore={(vid) => editScene(openScene.id, (s) => {
@@ -337,6 +372,7 @@ export default function App() {
             const id = openScene.id
             update((p) => {
               for (const st of p.stages) st.sceneIds = st.sceneIds.filter((x) => x !== id)
+              p.connections = p.connections.filter((c) => c.from !== id && c.to !== id)
               delete p.scenes[id]
             })
             setOpenSceneId(null)
@@ -405,7 +441,7 @@ export default function App() {
           />
         )}
         <nav className="dock glass" aria-label="Views">
-          {dockTab('circle', <><span className="dock-ico ring" />Circle</>)}
+          {dockTab('circle', <><span className="dock-ico ring" />Clock</>)}
           {openScene && dockTab('scene', <><span className="dock-ico" style={{ ['--h' as string]: HUES[stageOf(openScene.id)] }} />{openScene.title}</>, STEPS.find((s) => s.key === step)?.label)}
           {anyDraft && dockTab('script', <><span className="dock-ico page" />Screenplay</>, `${pages.toFixed(1)} pp`)}
           <span className="dock-sep" />
@@ -418,7 +454,7 @@ export default function App() {
       </div>
 
       <p className="gesture-hint" aria-hidden={panelUp && view !== 'circle'}>
-        <span><kbd>scroll</kbd> twirl</span><span><kbd>pinch</kbd> zoom</span><span><kbd>drag</kbd> spin</span><span><kbd>←</kbd><kbd>→</kbd> step</span>
+        <span><kbd>scroll</kbd> twirl</span><span><kbd>pinch</kbd> zoom</span><span><kbd>drag</kbd> spin</span><span><kbd>←</kbd><kbd>→</kbd> step</span><span><kbd>hold</kbd> move scene</span>
         {needle.zoom > 1.3 && <button className="btn ghost small" onClick={() => wheel.current?.zoomOut()}>Zoom out</button>}
       </p>
 
@@ -430,22 +466,45 @@ export default function App() {
 
 function Settings({ onClose }: { onClose: () => void }) {
   const [key, setKey] = useState(getApiKey())
+  const [useCC, setUseCC] = useState(getUseClaudeCode())
+  const [ccPath, setCcPath] = useState<string | null | undefined>(undefined)
+  const desktop = '__TAURI_INTERNALS__' in window
+  useEffect(() => {
+    claudeCodePath().then(setCcPath)
+  }, [])
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal glass" role="dialog" aria-label="Claude connection" onClick={(e) => e.stopPropagation()}>
         <h2>Claude connection</h2>
         <p>
-          Drafting and rewrites use <code>{DRAFT_MODEL}</code>; reviews use <code>{REVIEW_MODEL}</code>. Inside Claude, StoryCircle uses your Claude account. Elsewhere it needs an API key, and runs a scripted demo without one.
+          Drafting and rewrites use <code>{DRAFT_MODEL}</code>; reviews use <code>{REVIEW_MODEL}</code>. Inside Claude, StoryClock uses your Claude account. The desktop app can use Claude Code on this computer, so it runs on your Claude subscription. Otherwise it needs an API key, and runs a scripted demo without one.
         </p>
+        {desktop && (
+          <div className="cc-box">
+            <label className="cc-toggle">
+              <input type="checkbox" checked={useCC} onChange={(e) => setUseCC(e.target.checked)} />
+              <span>
+                <strong>Use Claude Code on this computer</strong>
+                <small className="meta">
+                  {ccPath === undefined
+                    ? 'Looking for Claude Code…'
+                    : ccPath
+                      ? `Found at ${ccPath}. Assist runs on the Claude plan you're signed in to there.`
+                      : 'Not found. Install Claude Code from claude.com/claude-code, run "claude" once in Terminal to sign in, then reopen StoryClock.'}
+                </small>
+              </span>
+            </label>
+          </div>
+        )}
         <label className="field">
-          <span>Anthropic API key</span>
+          <span>Anthropic API key{desktop ? ' (used when Claude Code is off or missing)' : ''}</span>
           <input id="api-key" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} autoComplete="off" />
         </label>
-        <p className="meta">The key stays on this device. The desktop build will move it to the system keychain.</p>
+        <p className="meta">The key stays on this device.</p>
         <div className="modal-actions">
           <span className="spacer" />
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={() => { setApiKey(key.trim()); onClose() }}>Save</button>
+          <button className="btn primary" onClick={() => { setApiKey(key.trim()); setUseClaudeCode(useCC); onClose() }}>Save</button>
         </div>
       </div>
     </div>
