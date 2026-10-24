@@ -32,5 +32,6 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOY_SA }}
           create_credentials_file: true
+          token_format: access_token
       - if: github.event_name == 'push' && env.WIF_PROVIDER != ''
-        run: npx -y firebase-tools@15 deploy --only hosting --non-interactive
+        run: npx -y firebase-tools@15 deploy --only hosting --non-interactive --debug 2>&1 | grep -vE '^\s*$' | tail -80; test ${PIPESTATUS[0]} -eq 0
