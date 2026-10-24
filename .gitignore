@@ -25,3 +25,6 @@ dist-ssr
 
 src-tauri/target
 dist-single
+
+.firebase/
+firebase-debug.log

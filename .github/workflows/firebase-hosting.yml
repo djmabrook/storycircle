@@ -1,0 +1,29 @@
+# Deploys the web build to Firebase Hosting: live on pushes to main, a preview URL on pull requests.
+# Needs the repository secret FIREBASE_SERVICE_ACCOUNT (a service account JSON key for the Firebase project).
+name: Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: ${{ github.event_name == 'push' && 'live' || '' }}
