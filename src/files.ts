@@ -37,7 +37,8 @@ export async function saveTextFile(filename: string, text: string, ext: string):
     const downloads = (await host.use('downloads').catch(() => null)) as Downloads | null
     if (downloads) {
       try {
-        await downloads.save({ filename, data: blob })
+        // The viewer's download prompt only takes common extensions, so name the file by its content type.
+        await downloads.save({ filename: `${filename}.${ext === 'fountain' ? 'txt' : 'json'}`, data: blob })
         return true
       } catch (e) {
         if ((e as { code?: string }).code === 'declined') return false
