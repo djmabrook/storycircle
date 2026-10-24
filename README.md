@@ -35,7 +35,7 @@ npm run build:single   # one-file HTML preview in dist-single/
 
 ## Web version
 
-StoryClock preview: each push to this branch deploys to the Firebase preview channel `storyclock` (a separate URL that expires 30 days after the last push). The live site below is untouched.
+StoryClock preview: each push to this branch deploys to the Firebase preview channel `storyclock`, **https://storycircle-37772--storyclock-q21tloo6.web.app** (a separate URL that expires 30 days after the last push). The live site below is untouched.
 
 StoryCircle:
 
