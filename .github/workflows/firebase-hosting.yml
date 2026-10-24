@@ -1,5 +1,5 @@
-# Deploys the web build to Firebase Hosting: live on pushes to main, a preview URL on pull requests.
-# Needs the repository secret FIREBASE_SERVICE_ACCOUNT (a service account JSON key for the Firebase project).
+# Builds on every push and pull request; deploys main to Firebase Hosting.
+# Auth is keyless (Workload Identity Federation), so no service account key is stored anywhere.
 name: Firebase Hosting
 
 on:
@@ -7,15 +7,17 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Printed by the Cloud Shell setup script. Deploy is skipped while it's empty.
+  WIF_PROVIDER: ''
+  DEPLOY_SA: github-deployer@storycircle-37772.iam.gserviceaccount.com
+
 jobs:
-  deploy:
+  build-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      pull-requests: write
-    env:
-      HAS_FIREBASE_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,10 +26,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      # Skipped until the secret is added, so the build still runs as a check.
-      - if: env.HAS_FIREBASE_KEY == 'true'
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - if: github.event_name == 'push' && env.WIF_PROVIDER != ''
+        uses: google-github-actions/auth@v2
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: ${{ github.event_name == 'push' && 'live' || '' }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SA }}
+          create_credentials_file: true
+      - if: github.event_name == 'push' && env.WIF_PROVIDER != ''
+        run: npx -y firebase-tools@15 deploy --only hosting --non-interactive
